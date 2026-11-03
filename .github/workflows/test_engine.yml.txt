@@ -1,0 +1,85 @@
+name: Build & Test Engine
+
+on:
+
+# ★ Queue test: push mới sẽ HỦY bản test đang chạy (không phải ván đấu nên hủy được,
+# tránh dồn hàng đợi test build khi push liên tiếp)
+concurrency:
+  group: test-engine-enhanced
+  cancel-in-progress: true
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq build-essential
+    
+    - name: Build PikaJieQi Enhanced
+      run: |
+        cd src
+        make -j$(nproc) ARCH=x86-64-sse41-popcnt build
+        ls -la PikaJieQi
+    
+    - name: Download NNUE
+      run: |
+        cd src
+        curl -sL "https://github.com/official-pikafish/Networks/releases/download/master-net/pikafish.nnue" -o pikafish.nnue
+        ls -la pikafish.nnue
+    
+    - name: Test engine UCI handshake
+      run: |
+        cd src
+        echo "=== UCI handshake ==="
+        echo -e "uci\nisready\nquit" | ./PikaJieQi | head -5
+    
+    - name: Test opening position bestmove
+      run: |
+        cd src
+        echo "=== Opening bestmove (RED to move) ==="
+        (echo -e "uci\nsetoption name EvalFile value pikafish.nnue\nisready\nposition startpos\ngo infinite"; sleep 5; echo "stop"; sleep 1; echo "quit") | timeout 15 ./PikaJieQi | grep -E "bestmove|depth"
+    
+    - name: Test with moves (after c3c4N, BLACK to move)
+      run: |
+        cd src
+        echo "=== After c3c4N, BLACK to move ==="
+        (echo -e "uci\nsetoption name EvalFile value pikafish.nnue\nisready\nposition startpos moves c3c4N\ngo infinite"; sleep 5; echo "stop"; sleep 1; echo "quit") | timeout 15 ./PikaJieQi | grep -E "bestmove|depth"
+    
+    - name: Test with multiple moves
+      run: |
+        cd src
+        echo "=== After c3c4N c6c5n e3e4P, RED to move ==="
+        (echo -e "uci\nsetoption name EvalFile value pikafish.nnue\nisready\nposition startpos moves c3c4N c6c5n e3e4P\ngo infinite"; sleep 5; echo "stop"; sleep 1; echo "quit") | timeout 15 ./PikaJieQi | grep -E "bestmove|depth"
+    
+    - name: Verify sigmoid aggregation patch
+      run: |
+        cd src
+        echo "=== Sigmoid patch verification ==="
+        grep -c "FLIP_SCALING" misc.h && echo "✅ FLIP_SCALING defined"
+        grep -c "winrateSum" misc.h && echo "✅ winrateSum present"
+        grep -c "score_to_winrate\|1.0 / (1.0" misc.h && echo "✅ sigmoid function present"
+    
+    - name: Verify chance branch reduction patch
+      run: |
+        cd src
+        echo "=== Chance branch reduction verification ==="
+        grep -c "reveal_depth_reduction" search.cpp && echo "✅ reveal_depth_reduction present"
+    
+    - name: Verify mate fix patch
+      run: |
+        cd src
+        echo "=== Mate fix verification ==="
+        grep -c "allDecisive" misc.h && echo "✅ allDecisive check present"
+        grep -c "bestWinMate" misc.h && echo "✅ bestWinMate tracking present"

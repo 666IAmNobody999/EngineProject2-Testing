@@ -1,0 +1,163 @@
+benchmark.o: benchmark.cpp position.h bitboard.h types.h tune.h psqt.h \
+ nnue/nnue_accumulator.h nnue/nnue_architecture.h nnue/nnue_common.h \
+ nnue/../misc.h nnue/../types.h nnue/../tune.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../types.h \
+ nnue/features/../../tune.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h
+bitboard.o: bitboard.cpp bitboard.h types.h tune.h misc.h magics.h
+evaluate.o: evaluate.cpp bitboard.h types.h tune.h evaluate.h misc.h \
+ thread.h material.h position.h psqt.h nnue/nnue_accumulator.h \
+ nnue/nnue_architecture.h nnue/nnue_common.h nnue/../misc.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h movepick.h movegen.h search.h \
+ thread_win32_osx.h uci.h
+main.o: main.cpp bitboard.h types.h tune.h position.h psqt.h \
+ nnue/nnue_accumulator.h nnue/nnue_architecture.h nnue/nnue_common.h \
+ nnue/../misc.h nnue/../types.h nnue/../tune.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../types.h \
+ nnue/features/../../tune.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h search.h misc.h movepick.h movegen.h \
+ thread.h material.h thread_win32_osx.h uci.h
+material.o: material.cpp material.h misc.h types.h tune.h position.h \
+ bitboard.h psqt.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
+ nnue/nnue_common.h nnue/../misc.h nnue/features/half_ka_v2_hm.h \
+ nnue/features/../nnue_common.h nnue/features/../../evaluate.h \
+ nnue/features/../../types.h nnue/features/../../tune.h \
+ nnue/features/../../misc.h nnue/layers/affine_transform.h \
+ nnue/layers/../nnue_common.h nnue/layers/simd.h \
+ nnue/layers/clipped_relu.h nnue/layers/sqr_clipped_relu.h thread.h \
+ movepick.h movegen.h search.h thread_win32_osx.h
+misc.o: misc.cpp misc.h types.h tune.h thread.h material.h position.h \
+ bitboard.h psqt.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
+ nnue/nnue_common.h nnue/../misc.h nnue/features/half_ka_v2_hm.h \
+ nnue/features/../nnue_common.h nnue/features/../../evaluate.h \
+ nnue/features/../../types.h nnue/features/../../tune.h \
+ nnue/features/../../misc.h nnue/layers/affine_transform.h \
+ nnue/layers/../nnue_common.h nnue/layers/simd.h \
+ nnue/layers/clipped_relu.h nnue/layers/sqr_clipped_relu.h movepick.h \
+ movegen.h search.h thread_win32_osx.h compression/zip.h
+movegen.o: movegen.cpp movegen.h types.h tune.h position.h bitboard.h \
+ psqt.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
+ nnue/nnue_common.h nnue/../misc.h nnue/../types.h nnue/../tune.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../types.h \
+ nnue/features/../../tune.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h
+movepick.o: movepick.cpp bitboard.h types.h tune.h movepick.h movegen.h \
+ position.h psqt.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
+ nnue/nnue_common.h nnue/../misc.h nnue/../types.h nnue/../tune.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../types.h \
+ nnue/features/../../tune.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h
+position.o: position.cpp bitboard.h types.h tune.h misc.h position.h \
+ psqt.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
+ nnue/nnue_common.h nnue/../misc.h nnue/features/half_ka_v2_hm.h \
+ nnue/features/../nnue_common.h nnue/features/../../evaluate.h \
+ nnue/features/../../types.h nnue/features/../../tune.h \
+ nnue/features/../../misc.h nnue/layers/affine_transform.h \
+ nnue/layers/../nnue_common.h nnue/layers/simd.h \
+ nnue/layers/clipped_relu.h nnue/layers/sqr_clipped_relu.h thread.h \
+ material.h movepick.h movegen.h search.h thread_win32_osx.h tt.h uci.h
+psqt.o: psqt.cpp psqt.h types.h tune.h bitboard.h
+search.o: search.cpp evaluate.h types.h tune.h misc.h movegen.h \
+ movepick.h position.h bitboard.h psqt.h nnue/nnue_accumulator.h \
+ nnue/nnue_architecture.h nnue/nnue_common.h nnue/../misc.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h search.h thread.h material.h \
+ thread_win32_osx.h timeman.h tt.h uci.h
+thread.o: thread.cpp movegen.h types.h tune.h search.h misc.h movepick.h \
+ position.h bitboard.h psqt.h nnue/nnue_accumulator.h \
+ nnue/nnue_architecture.h nnue/nnue_common.h nnue/../misc.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../types.h \
+ nnue/features/../../tune.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h thread.h material.h thread_win32_osx.h \
+ uci.h tt.h
+timeman.o: timeman.cpp search.h misc.h types.h tune.h movepick.h \
+ movegen.h position.h bitboard.h psqt.h nnue/nnue_accumulator.h \
+ nnue/nnue_architecture.h nnue/nnue_common.h nnue/../misc.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../types.h \
+ nnue/features/../../tune.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h timeman.h thread.h material.h \
+ thread_win32_osx.h uci.h
+tt.o: tt.cpp bitboard.h types.h tune.h misc.h thread.h material.h \
+ position.h psqt.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
+ nnue/nnue_common.h nnue/../misc.h nnue/features/half_ka_v2_hm.h \
+ nnue/features/../nnue_common.h nnue/features/../../evaluate.h \
+ nnue/features/../../types.h nnue/features/../../tune.h \
+ nnue/features/../../misc.h nnue/layers/affine_transform.h \
+ nnue/layers/../nnue_common.h nnue/layers/simd.h \
+ nnue/layers/clipped_relu.h nnue/layers/sqr_clipped_relu.h movepick.h \
+ movegen.h search.h thread_win32_osx.h tt.h uci.h
+uci.o: uci.cpp evaluate.h types.h tune.h movegen.h position.h bitboard.h \
+ psqt.h nnue/nnue_accumulator.h nnue/nnue_architecture.h \
+ nnue/nnue_common.h nnue/../misc.h nnue/../types.h nnue/../tune.h \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../evaluate.h nnue/features/../../misc.h \
+ nnue/layers/affine_transform.h nnue/layers/../nnue_common.h \
+ nnue/layers/simd.h nnue/layers/clipped_relu.h \
+ nnue/layers/sqr_clipped_relu.h search.h misc.h movepick.h thread.h \
+ material.h thread_win32_osx.h timeman.h tt.h uci.h
+ucioption.o: ucioption.cpp evaluate.h types.h tune.h misc.h search.h \
+ movepick.h movegen.h position.h bitboard.h psqt.h \
+ nnue/nnue_accumulator.h nnue/nnue_architecture.h nnue/nnue_common.h \
+ nnue/../misc.h nnue/features/half_ka_v2_hm.h \
+ nnue/features/../nnue_common.h nnue/features/../../evaluate.h \
+ nnue/features/../../misc.h nnue/layers/affine_transform.h \
+ nnue/layers/../nnue_common.h nnue/layers/simd.h \
+ nnue/layers/clipped_relu.h nnue/layers/sqr_clipped_relu.h thread.h \
+ material.h thread_win32_osx.h tt.h uci.h
+tune.o: tune.cpp types.h tune.h uci.h
+evaluate_nnue.o: nnue/evaluate_nnue.cpp nnue/../evaluate.h \
+ nnue/../types.h nnue/../tune.h nnue/../position.h nnue/../bitboard.h \
+ nnue/../psqt.h nnue/../nnue/nnue_accumulator.h \
+ nnue/../nnue/nnue_architecture.h nnue/../nnue/nnue_common.h \
+ nnue/../nnue/../misc.h nnue/../nnue/../types.h nnue/../nnue/../tune.h \
+ nnue/../nnue/features/half_ka_v2_hm.h \
+ nnue/../nnue/features/../nnue_common.h \
+ nnue/../nnue/features/../../evaluate.h \
+ nnue/../nnue/features/../../misc.h \
+ nnue/../nnue/layers/affine_transform.h \
+ nnue/../nnue/layers/../nnue_common.h nnue/../nnue/layers/simd.h \
+ nnue/../nnue/layers/clipped_relu.h \
+ nnue/../nnue/layers/sqr_clipped_relu.h nnue/../misc.h nnue/../uci.h \
+ nnue/../types.h nnue/evaluate_nnue.h nnue/nnue_feature_transformer.h \
+ nnue/nnue_common.h nnue/nnue_architecture.h
+half_ka_v2_hm.o: nnue/features/half_ka_v2_hm.cpp \
+ nnue/features/half_ka_v2_hm.h nnue/features/../nnue_common.h \
+ nnue/features/../../misc.h nnue/features/../../types.h \
+ nnue/features/../../tune.h nnue/features/../../evaluate.h \
+ nnue/features/../../misc.h nnue/features/../../position.h \
+ nnue/features/../../bitboard.h nnue/features/../../psqt.h \
+ nnue/features/../../nnue/nnue_accumulator.h \
+ nnue/features/../../nnue/nnue_architecture.h \
+ nnue/features/../../nnue/nnue_common.h \
+ nnue/features/../../nnue/features/half_ka_v2_hm.h \
+ nnue/features/../../nnue/layers/affine_transform.h \
+ nnue/features/../../nnue/layers/../nnue_common.h \
+ nnue/features/../../nnue/layers/simd.h \
+ nnue/features/../../nnue/layers/clipped_relu.h \
+ nnue/features/../../nnue/layers/sqr_clipped_relu.h
+zip.o: compression/zip.cpp compression/miniz.h compression/zip.h
