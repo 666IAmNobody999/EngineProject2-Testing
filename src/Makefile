@@ -63,7 +63,7 @@ endif
 ### Source and object files
 SRCS = benchmark.cpp bitboard.cpp evaluate.cpp main.cpp material.cpp \
 	misc.cpp movegen.cpp movepick.cpp position.cpp psqt.cpp \
-	search.cpp thread.cpp timeman.cpp tt.cpp uci.cpp ucioption.cpp tune.cpp winperf.cpp \
+	search.cpp thread.cpp timeman.cpp tt.cpp uci.cpp ucioption.cpp tune.cpp winperf.cpp datagen.cpp \
 	nnue/evaluate_nnue.cpp nnue/features/half_ka_v2_hm.cpp \
 	compression/zip.cpp
 
@@ -372,6 +372,12 @@ ifeq ($(MAKELEVEL),0)
 endif
 
 CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS)
+
+### NNUE hidden layer width (L1). Must match the trained network
+### (tools/nnue/train.py --l1). Default 512, set in nnue/nnue_architecture.h.
+ifneq ($(NNUE_L1),)
+	CXXFLAGS += -DNNUE_L1=$(NNUE_L1)
+endif
 
 ifeq ($(target_windows),yes)
 	CXXFLAGS += -finput-charset=UTF-8 -fexec-charset=GBK

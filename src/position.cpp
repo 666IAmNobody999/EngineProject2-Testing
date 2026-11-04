@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef> // For offsetof()
+#include <cctype>
 #include <cstring> // For std::memset, std::memcmp
 #include <iomanip>
 #include <sstream>
@@ -124,6 +125,84 @@ void Position::init() {
 }
 
 
+/// Position::validate_fen() rejects FENs that set() cannot handle. set() assumes
+/// a correct FEN; without a king (e.g. an empty or comment line sent as FEN) or
+/// with two kings, square<KING>() fails its assertion in debug builds and reads
+/// garbage in release builds.
+
+std::string Position::validate_fen(const string& fenStr) {
+
+  std::istringstream ss(fenStr);
+  string board, side, bag;
+  ss >> board >> side >> bag;
+  if (board.empty())
+      return "empty FEN";
+
+  int rank = RANK_9, file = 0, kings[COLOR_NB] = {0, 0}, dark[COLOR_NB] = {0, 0};
+  for (char ch : board)
+  {
+      if (ch == '/')
+      {
+          if (file != FILE_NB) return "rank " + std::to_string(rank) + " does not have 9 files";
+          if (--rank < RANK_0) return "more than 10 ranks";
+          file = 0;
+          continue;
+      }
+      if (ch >= '1' && ch <= '9') { file += ch - '0'; if (file > FILE_NB) return "rank too long"; continue; }
+
+      size_t idx = PieceToChar.find(ch);
+      if (ch == ' ' || idx == string::npos) return string("bad piece character '") + ch + "'";
+      if (file >= FILE_NB) return "rank too long";
+
+      Square s = make_square(File(file), Rank(rank));
+      if (ch == 'x' || ch == 'X')
+      {
+          // A hidden piece sits on a starting square of its own side
+          Color c = ch == 'X' ? WHITE : BLACK;
+          int i = s > SQ_I4 ? SQ_I9 - s : s;
+          if ((c == WHITE) != (s <= SQ_I4) || BPiece[i] == NO_PIECE_TYPE)
+              return string("hidden piece '") + ch + "' not on a starting square";
+          dark[c]++;
+      }
+      else if (ch == 'K' || ch == 'k')
+      {
+          Color c = ch == 'K' ? WHITE : BLACK;
+          kings[c]++;
+          Rank rr = Rank(c == WHITE ? rank : RANK_9 - rank);
+          if (file < FILE_D || file > FILE_F || rr > RANK_2)
+              return string("king '") + ch + "' outside its palace";
+      }
+      ++file;
+  }
+  if (rank != RANK_0 || file != FILE_NB) return "board must have 10 ranks of 9 files";
+  if (kings[WHITE] != 1 || kings[BLACK] != 1)
+      return "each side needs exactly one king (found K=" + std::to_string(kings[WHITE])
+           + ", k=" + std::to_string(kings[BLACK]) + ")";
+  if (side != "w" && side != "b") return "side to move must be w or b";
+
+  // Hidden pieces are valued as the average of their bag: it must not be empty
+  int bagCount[COLOR_NB] = {0, 0};
+  for (size_t i = 0; i + 1 < bag.size(); ++i)
+      if (std::isalpha((unsigned char)bag[i]) && std::isdigit((unsigned char)bag[i + 1]))
+          bagCount[std::isupper((unsigned char)bag[i]) ? WHITE : BLACK] += bag[i + 1] - '0';
+  for (Color c : {WHITE, BLACK})
+      if (dark[c] && !bagCount[c])
+          return string(c == WHITE ? "white" : "black") + " has hidden pieces but no hidden-piece bag";
+
+  // The side to move must not be able to capture the enemy king
+  // (this includes the two kings facing each other on an open file).
+  StateInfo st;
+  Position p;
+  p.set(fenStr, &st, nullptr);
+  if (p.checkers_to(p.side_to_move(), p.square<KING>(~p.side_to_move())))
+      return "the side not to move is in check";
+  if (attacks_bb<ROOK>(p.square<KING>(WHITE), p.pieces()) & p.pieces(BLACK, KING))
+      return "the two kings face each other on an open file";
+
+  return string();
+}
+
+
 /// Position::set() initializes the position object with the given FEN string.
 /// This function is not very robust - make sure that input FENs are correct,
 /// this is assumed to be the responsibility of the GUI.
@@ -161,6 +240,8 @@ Position& Position::set(const string& fenStr, StateInfo* si, Thread* th) {
   std::memset(this, 0, sizeof(Position));
   std::memset(si, 0, sizeof(StateInfo));
   st = si;
+  // A state set from a FEN has no usable NNUE delta to its predecessor
+  si->dirtyPiece.refresh = true;
 
   ss >> std::noskipws;
 
@@ -573,7 +654,6 @@ bool Position::getDark(StateInfo& newSt, int& typecount, bool& isDarkDepth) {
     Color us = ~sideToMove;
     Piece pc = NO_PIECE;
     typecount = 0;
-    Value darkV = Value(restPieces[us].evgValue());
     isDarkDepth = st->darkDepth > MAXDARKDEPTH || st->darkTypes > MAXDARKTYPES;
     // DarkMode 1: beyond the reveal budget the piece simply stays hidden (it is
     // valued as the average of the remaining hidden pieces) and the line is
@@ -594,6 +674,10 @@ bool Position::getDark(StateInfo& newSt, int& typecount, bool& isDarkDepth) {
         break;
     }
     if (pc == NO_PIECE)return false;
+
+    // The reveal state hangs off the state before the move (previous below), so
+    // its NNUE delta must describe move + reveal together: keep the move's delta.
+    const DirtyPiece moveDp = st->dirtyPiece;
 
     // Update the bloom filter
     ++filter[st->key];
@@ -626,14 +710,20 @@ bool Position::getDark(StateInfo& newSt, int& typecount, bool& isDarkDepth) {
     {
         st->material[us] += 69;
 
-        dp.dirty_num = 2;  // 1 piece moved, 1 piece captured
-        dp.piece[0] = old;
-        dp.from[0] = ds;
+        // Relative to the position before the move: the hidden piece leaves its
+        // start square, a captured piece (if any) leaves ds, and the revealed
+        // piece appears on ds. One piece of type_of(pc) left the bag of us.
+        assert(moveDp.piece[0] == old && moveDp.to[0] == ds);
+        dp = moveDp;
         dp.to[0] = SQ_NONE;
-
-        dp.piece[1] = pc;
-        dp.from[1] = SQ_NONE;
-        dp.to[1] = ds;
+        dp.piece[dp.dirty_num] = pc;
+        dp.from[dp.dirty_num] = SQ_NONE;
+        dp.to[dp.dirty_num] = ds;
+        dp.dirty_num++;
+        dp.bagNum = 1;
+        dp.bagColor[0] = us;
+        dp.bagType[0] = type_of(pc);
+        dp.bagCount[0] = restPieces[us].countType(type_of(pc));
 
         // Update hash key
         k ^= Zobrist::psq[old][ds] ^ Zobrist::psq[pc][ds];
@@ -727,6 +817,11 @@ bool Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
   st->accumulator.computed[BLACK] = false;
   auto& dp = st->dirtyPiece;
   dp.dirty_num = 1;
+  dp.bagNum = 0;
+  // A move carrying piece identities (reveal / captured hidden piece, sent by
+  // the GUI) has already changed the board and the bags of the previous state
+  // above: rebuild the NNUE accumulator instead of updating it.
+  dp.refresh = to_pc != NO_PIECE || cap_Piece(m) != NO_PIECE;
 
   Color us = sideToMove;
   Color them = ~us;
@@ -876,6 +971,8 @@ void Position::do_null_move(StateInfo& newSt) {
 
   st->dirtyPiece.dirty_num = 0;
   st->dirtyPiece.piece[0] = NO_PIECE; // Avoid checks in UpdateAccumulator()
+  st->dirtyPiece.bagNum = 0;
+  st->dirtyPiece.refresh = false;
   st->accumulator.computed[WHITE] = false;
   st->accumulator.computed[BLACK] = false;
 

@@ -175,6 +175,7 @@ static inline Depth reveal_depth_reduction(PieceType pt, Depth baseDepth) {
 namespace Search {
 
   LimitsType Limits;
+  bool Silent = false;
 }
 
 using std::string;
@@ -296,11 +297,13 @@ void MainThread::search() {
   Time.init(Limits, us, rootPos.game_ply());
   TT.new_search();
 
-  Eval::NNUE::verify();
+  if (!Silent)
+      Eval::NNUE::verify();
 
   if (rootMoves.empty())
   {
       rootMoves.emplace_back(MOVE_NONE);
+      if (!Silent)
       sync_cout << "info depth 0 score "
                 << UCI::value(-VALUE_MATE)
                 << sync_endl;
@@ -344,6 +347,9 @@ void MainThread::search() {
 
   for (Thread* th : Threads)
     th->previousDepth = bestThread->completedDepth;
+
+  if (Silent)
+      return;
 
   // Send again PV info if we have a new best thread
   if (bestThread != this)
@@ -492,7 +498,8 @@ void Thread::search() {
               if (   mainThread
                   && multiPV == 1
                   && (bestValue <= alpha || bestValue >= beta)
-                  && Time.elapsed() > 3000)
+                  && Time.elapsed() > 3000
+                  && !Silent)
                   sync_cout << UCI::pv(rootPos, rootDepth, alpha, beta) << sync_endl;
 
               // In case of failing low/high increase aspiration window and
@@ -523,6 +530,7 @@ void Thread::search() {
           std::stable_sort(rootMoves.begin() + pvFirst, rootMoves.begin() + pvIdx + 1);
 
           if (    mainThread
+              && !Silent
               && (Threads.stop || pvIdx + 1 == multiPV || Time.elapsed() > 3000))
               sync_cout << UCI::pv(rootPos, rootDepth, alpha, beta) << sync_endl;
       }

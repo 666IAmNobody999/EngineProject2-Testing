@@ -37,14 +37,18 @@ namespace Stockfish {
 namespace Eval {
 
   string currentEvalFileName = "None";
+  bool useNNUE = false;
 
-  /// NNUE::init() tries to load a NNUE network at startup time, or when the engine
-  /// receives a UCI command "setoption name EvalFile value .*.nnue"
-  /// The name of the NNUE network is always retrieved from the EvalFile option.
-  /// We search the given network in two locations: in the active working directory and
-  /// in the engine directory.
+  /// NNUE::init() loads the NNUE network named by the EvalFile option when the
+  /// option "Use NNUE" is on (at startup, and whenever either option changes).
+  /// The file is searched in the working directory and in the engine directory.
+  /// When it cannot be loaded the engine keeps the classical evaluation.
 
   void NNUE::init() {
+
+    useNNUE = false;
+    if (!bool(Options["Use NNUE"]))
+        return;
 
     string eval_file = string(Options["EvalFile"]);
     if (eval_file.empty())
@@ -60,35 +64,26 @@ namespace Eval {
             if (load_eval(eval_file, stream) || load_eval(eval_file, ss))
                 currentEvalFileName = eval_file;
         }
+
+    useNNUE = currentEvalFileName == eval_file;
   }
 
-  /// NNUE::verify() verifies that the last net used was loaded successfully
+  /// NNUE::verify() reports, once per search, which evaluation is in use.
   void NNUE::verify() {
-#if USE_NNUEEVAL 
+
+    if (!bool(Options["Use NNUE"]))
+        return;
+
     string eval_file = string(Options["EvalFile"]);
     if (eval_file.empty())
         eval_file = EvalFileDefaultName;
 
-    if (currentEvalFileName != eval_file)
-    {
-
-        string msg1 = "Network evaluation parameters compatible with the engine must be available.";
-        string msg2 = "The network file " + eval_file + " was not loaded successfully.";
-        string msg3 = "The UCI option EvalFile might need to specify the full path, including the directory name, to the network file.";
-        string msg4 = "The engine will be terminated now.";
-
-        sync_cout << "info string ERROR: " << msg1 << sync_endl;
-        sync_cout << "info string ERROR: " << msg2 << sync_endl;
-        sync_cout << "info string ERROR: " << msg3 << sync_endl;
-        sync_cout << "info string ERROR: " << msg4 << sync_endl;
-
-        exit(EXIT_FAILURE);
-    }
-
-    sync_cout << "info string NNUE evaluation using " << eval_file << " enabled" << sync_endl;
-#else
-      return;
-#endif
+    if (useNNUE)
+        sync_cout << "info string NNUE evaluation using " << eval_file << " enabled" << sync_endl;
+    else
+        sync_cout << "info string NNUE network " << eval_file
+                  << " could not be loaded (missing file or other architecture);"
+                     " using the classical evaluation" << sync_endl;
   }
 }
 
@@ -490,30 +485,20 @@ namespace {
 /// evaluation of the position from the point of view of the side to move.
 
 Value Eval::evaluate(const Position& pos, int* complexity) {
-#if USE_NNUEEVAL     
-  int nnueComplexity;
-  Value v = NNUE::evaluate(pos, &nnueComplexity);
-  // Blend nnue complexity with material complexity
-  nnueComplexity = (90 * nnueComplexity + 121 * abs(v - pos.material_diff())) / 256;
-  if (complexity) // Return hybrid NNUE complexity to caller
-      *complexity = nnueComplexity;
 
-  int scale = 1035 + 126 * pos.material_sum() / 4214;
-  Value optimism = pos.this_thread()->optimism[pos.side_to_move()];
-  optimism = optimism * (281 + nnueComplexity) / 256;
-  v = (v * scale + optimism * (scale - 780)) / 1024;
+  // The search tuning (null move "complexity" etc.) was done with the classical
+  // evaluation, which reports complexity 0; keep that for NNUE as well.
+  if (complexity)
+      *complexity = 0;
 
-  // Guarantee evaluation does not hit the mate range
-  v = std::clamp(v, VALUE_MATED_IN_MAX_PLY + 1, VALUE_MATE_IN_MAX_PLY - 1);
+  if (useNNUE)
+  {
+      Value v = NNUE::evaluate(pos);
+      // Guarantee evaluation does not hit the mate range
+      return std::clamp(v, VALUE_MATED_IN_MAX_PLY + 1, VALUE_MATE_IN_MAX_PLY - 1);
+  }
 
-  return v;
-#else
-    if (complexity)
-        *complexity = 0;
-    Value v = Evaluation<NO_TRACE>(pos).value();
-    return v;
-#endif
-
+  return Evaluation<NO_TRACE>(pos).value();
 }
 
 // format_cp_compact() converts a Value into (centi)pawns and writes it in a buffer.

@@ -36,8 +36,13 @@ namespace Stockfish::Eval::NNUE {
 // Input features used in evaluation function
 using FeatureSet = Features::HalfKAv2_hm;
 
-// Number of input feature dimensions after conversion
-constexpr IndexType TransformedFeatureDimensions = 1536;
+// Number of input feature dimensions after conversion (L1). Build with
+// "make NNUE_L1=1024" etc. to change it; the trainer must use the same value
+// (tools/nnue/train.py --l1). A larger L1 is stronger per node but slower.
+#ifndef NNUE_L1
+#define NNUE_L1 512
+#endif
+constexpr IndexType TransformedFeatureDimensions = NNUE_L1;
 constexpr IndexType PSQTBuckets = 8;
 constexpr IndexType LayerStacks = 8;
 

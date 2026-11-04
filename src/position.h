@@ -116,6 +116,11 @@ public:
   Position& set(const std::string& fenStr, StateInfo* si, Thread* th);
   Position& set(const Position& pos, StateInfo* si, Thread* th);
   std::string fen() const;
+  // Checks a FEN before set(): board shape, one king per side inside its
+  // palace, hidden pieces only on their starting squares, a hidden-piece bag
+  // when hidden pieces exist, and the side not to move not in check.
+  // Returns an empty string when the FEN is usable, else the reason.
+  static std::string validate_fen(const std::string& fenStr);
 
   // Position representation
   Bitboard pieces(PieceType pt) const;
@@ -181,6 +186,7 @@ public:
   bool isFirstSide() const;
   // Number of still-hidden pieces of color c (all possible reveal outcomes)
   int rest_count(Color c) const { return int(restPieces[c].size()); }
+  int bag_count(Color c, PieceType t) const { return restPieces[c].countType(t); }
   Color side_to_move() const;
   int game_ply() const;
   Thread* this_thread() const;

@@ -13,3 +13,9 @@ __pycache__/
 src/universal/work-*/
 src/PikaJieQi-universal*
 src/pikajieqi-build*
+tools/nnue/data/
+tools/nnue/nets/
+tools/nnue/__pycache__/
+*.nnue
+*.bin
+*.pt

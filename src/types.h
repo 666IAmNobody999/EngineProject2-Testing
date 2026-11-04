@@ -103,7 +103,7 @@ constexpr bool Is64Bit = true;
 constexpr bool Is64Bit = false;
 #endif
 
-#define USE_NNUEEVAL 0
+// NNUE evaluation is selected at run time: UCI option "Use NNUE" (evaluate.cpp)
 constexpr int DARKVALRATE = 2862;//5000-10000
 constexpr int DARKMAXDIFF = 4812;//500-5000
 
@@ -407,6 +407,18 @@ struct DirtyPiece {
   // From and to squares, which may be SQ_NONE
   Square from[3];
   Square to[3];
+
+  // 揭棋: the hidden-piece bag of one side changed (a reveal took a piece out of
+  // it). bagCount[i] is the count of bagType[i] after the change; the count
+  // before is bagCount[i] + 1. NNUE turns this into a bag feature update.
+  int       bagNum;
+  Color     bagColor[2];
+  PieceType bagType[2];
+  int       bagCount[2];
+
+  // Set when the change cannot be expressed incrementally (game moves that
+  // reveal / identify pieces from the GUI): the accumulator is rebuilt.
+  bool refresh;
 };
 
 /// Score enum stores a middlegame and an endgame value in a single integer (enum).

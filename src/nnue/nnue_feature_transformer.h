@@ -25,7 +25,9 @@
 #include "nnue_architecture.h"
 #include "../position.h"
 
+#include <cstdlib>
 #include <cstring> // std::memset()
+#include <iostream>
 
 namespace Stockfish::Eval::NNUE {
 
@@ -271,6 +273,43 @@ namespace Stockfish::Eval::NNUE {
     }
 
     // Convert input features
+    // Debug aid (build with -DNNUE_CHECK_INCREMENTAL): recompute the
+    // accumulator of the current position from scratch and compare it with the
+    // incrementally updated one. Aborts on the first difference.
+    void check_accumulator(const Position& pos) const {
+      const auto& acc = pos.state()->accumulator;
+      for (Color p : { WHITE, BLACK })
+      {
+        FeatureSet::IndexList active;
+        if (p == WHITE) FeatureSet::append_active_indices<WHITE>(pos, active);
+        else            FeatureSet::append_active_indices<BLACK>(pos, active);
+        for (IndexType j = 0; j < HalfDimensions; ++j)
+        {
+          std::int32_t v = biases[j];
+          for (const auto i : active)
+            v += weights[HalfDimensions * i + j];
+          if (std::int16_t(v) != acc.accumulation[p][j])
+          {
+            std::cerr << "NNUE incremental accumulator mismatch (perspective " << int(p)
+                      << ", unit " << j << "): " << acc.accumulation[p][j] << " vs " << v
+                      << "  fen " << pos.fen() << std::endl;
+            std::abort();
+          }
+        }
+        for (IndexType k = 0; k < PSQTBuckets; ++k)
+        {
+          std::int32_t v = 0;
+          for (const auto i : active)
+            v += psqtWeights[i * PSQTBuckets + k];
+          if (v != acc.psqtAccumulation[p][k])
+          {
+            std::cerr << "NNUE incremental PSQT mismatch  fen " << pos.fen() << std::endl;
+            std::abort();
+          }
+        }
+      }
+    }
+
     std::int32_t transform(const Position& pos, OutputType* output, int bucket) const {
       update_accumulator<WHITE>(pos);
       update_accumulator<BLACK>(pos);

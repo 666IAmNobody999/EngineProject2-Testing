@@ -68,6 +68,7 @@ void init(OptionsMap& o) {
   o["nodestime"]             << Option(0, 0, 10000);
   o["UCI_AnalyseMode"]       << Option(false);
   o["UCI_ShowWDL"]           << Option(false);
+  o["Use NNUE"]              << Option(false, on_eval_file);
   o["EvalFile"]              << Option(EvalFileDefaultName, on_eval_file);
 }
 

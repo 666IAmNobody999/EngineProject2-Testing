@@ -106,6 +106,9 @@ struct LimitsType {
 
 extern LimitsType Limits;
 
+// When set (training-data generation), the search prints no info / bestmove.
+extern bool Silent;
+
 void init();
 void clear();
 

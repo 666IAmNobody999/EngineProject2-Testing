@@ -158,6 +158,9 @@ namespace Stockfish::Eval::NNUE {
 
     const int bucket = (pos.count<ALL_PIECES>() - 1) / 4;
     const auto psqt = featureTransformer->transform(pos, transformedFeatures, bucket);
+#ifdef NNUE_CHECK_INCREMENTAL
+    featureTransformer->check_accumulator(pos);
+#endif
     const auto positional = network[bucket]->propagate(transformedFeatures);
 
     if (complexity)

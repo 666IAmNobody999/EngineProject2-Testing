@@ -27,8 +27,6 @@ namespace Stockfish::Eval::NNUE::Features {
   // Index of a feature for a given king position and another piece on some square
   template<Color Perspective>
   inline IndexType HalfKAv2_hm::make_index(Square s, Piece pc, Square ksq) {
-    //delect dark bit info
-    pc =Piece( pc & 15);
     s = Square( Perspective == BLACK ? Rotate[s] : s);
     s = Square(KingBuckets[ksq] >> 3 ? Mirror[s] : s);
     return IndexType(s + PieceSquareIndex[Perspective][pc] + PS_NB * (KingBuckets[ksq] & 0x7));
@@ -47,6 +45,14 @@ namespace Stockfish::Eval::NNUE::Features {
       Square s = pop_lsb(bb);
       active.push_back(make_index<Perspective>(s, pos.piece_on(s), ksq));
     }
+
+    for (Color c : { WHITE, BLACK })
+      for (PieceType t = ROOK; t <= BISHOP; ++t)
+      {
+        int n = std::min(pos.bag_count(c, t), BagMax[t]);
+        for (int k = 0; k < n; ++k)
+          active.push_back(make_bag_index<Perspective>(c, t, k));
+      }
   }
 
   // Explicit template instantiations
@@ -67,6 +73,11 @@ namespace Stockfish::Eval::NNUE::Features {
       if (dp.to[i] != SQ_NONE)
         added.push_back(make_index<Perspective>(dp.to[i], dp.piece[i], ksq));
     }
+    // A reveal took one piece out of a bag: the count went from n + 1 to n,
+    // so the thermometer feature k = n switches off (if it was within range).
+    for (int i = 0; i < dp.bagNum; ++i)
+      if (dp.bagCount[i] < BagMax[dp.bagType[i]])
+        removed.push_back(make_bag_index<Perspective>(dp.bagColor[i], dp.bagType[i], dp.bagCount[i]));
   }
 
   // Explicit template instantiations
@@ -74,15 +85,15 @@ namespace Stockfish::Eval::NNUE::Features {
   template void HalfKAv2_hm::append_changed_indices<BLACK>(Square ksq, const DirtyPiece& dp, IndexList& removed, IndexList& added);
 
   int HalfKAv2_hm::update_cost(const StateInfo* st) {
-    return st->dirtyPiece.dirty_num;
+    return st->dirtyPiece.dirty_num + st->dirtyPiece.bagNum;
   }
 
   int HalfKAv2_hm::refresh_cost(const Position& pos) {
-    return pos.count<ALL_PIECES>();
+    return pos.count<ALL_PIECES>() + pos.rest_count(WHITE) + pos.rest_count(BLACK);
   }
 
   bool HalfKAv2_hm::requires_refresh(const StateInfo* st, Color perspective) {
-    return st->dirtyPiece.piece[0] == make_piece(perspective, KING);
+    return st->dirtyPiece.refresh || st->dirtyPiece.piece[0] == make_piece(perspective, KING);
   }
 
 }  // namespace Stockfish::Eval::NNUE::Features

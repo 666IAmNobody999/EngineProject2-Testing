@@ -38,7 +38,11 @@ namespace Eval {
   // The default net name MUST follow the format nn-[SHA256 first 12 digits].nnue
   // for the build process (profile-build and fishtest) to work. Do not change the
   // name of the macro, as it is used in the Makefile.
-  #define EvalFileDefaultName   "pikafish.nnue"
+  #define EvalFileDefaultName   "pikajieqi.nnue"
+
+  // NNUE evaluation is used only when the UCI option "Use NNUE" is on and the
+  // EvalFile network was loaded; otherwise the classical evaluation is used.
+  extern bool useNNUE;
 
   namespace NNUE {
 

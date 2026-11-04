@@ -51,17 +51,39 @@ namespace Stockfish::Eval::NNUE::Features {
       PS_W_BISHOP  =  10 * SQUARE_NB,
       PS_B_BISHOP  =  11 * SQUARE_NB,
       PS_KING      =  12 * SQUARE_NB,
-      PS_NB        =  13 * SQUARE_NB
+      // 揭棋: hidden (face-down) pieces get their own planes. Their identity is
+      // unknown, so they are not folded into the piece type of their start square.
+      PS_W_DARK    =  13 * SQUARE_NB,
+      PS_B_DARK    =  14 * SQUARE_NB,
+      PS_NB        =  15 * SQUARE_NB
     };
 
     static constexpr IndexType PieceSquareIndex[COLOR_NB][PIECE_NB] = {
       // convention: W - us, B - them
       // viewed from other side, W and B are reversed
       { PS_NONE, PS_W_ROOK, PS_W_ADVISOR, PS_W_CANNON, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_KING,
-        PS_NONE, PS_B_ROOK, PS_B_ADVISOR, PS_B_CANNON, PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_KING },
+        PS_NONE, PS_B_ROOK, PS_B_ADVISOR, PS_B_CANNON, PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_KING,
+        PS_NONE, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_NONE,
+        PS_NONE, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_NONE },
       { PS_NONE, PS_B_ROOK, PS_B_ADVISOR, PS_B_CANNON, PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_KING,
-        PS_NONE, PS_W_ROOK, PS_W_ADVISOR, PS_W_CANNON, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_KING, }
+        PS_NONE, PS_W_ROOK, PS_W_ADVISOR, PS_W_CANNON, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_KING,
+        PS_NONE, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_B_DARK, PS_NONE,
+        PS_NONE, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_W_DARK, PS_NONE }
     };
+
+    // 揭棋: hidden-piece bag features, shared by all king buckets. For each side
+    // (us first) and piece type, feature k is active when the bag still holds
+    // at least k + 1 pieces of that type (thermometer coding).
+    static constexpr int BagMax[PIECE_TYPE_NB]    = { 0, 2, 2, 2, 5, 2, 2, 0, 0, 0 };
+    static constexpr int BagOffset[PIECE_TYPE_NB] = { 0, 0, 2, 4, 6, 11, 13, 15, 15, 15 };
+    static constexpr IndexType BagPerSide = 15;
+    static constexpr IndexType KingBucketsNB = 6;
+    static constexpr IndexType BagBase = KingBucketsNB * static_cast<IndexType>(PS_NB);
+
+    template<Color Perspective>
+    static IndexType make_bag_index(Color c, PieceType t, int k) {
+      return BagBase + (c == Perspective ? 0 : BagPerSide) + BagOffset[t] + k;
+    }
 
     // Index of a feature for a given king position and another piece on some square
     template<Color Perspective>
@@ -69,13 +91,13 @@ namespace Stockfish::Eval::NNUE::Features {
 
    public:
     // Feature name
-    static constexpr const char* Name = "HalfKAv2_hm";
+    static constexpr const char* Name = "HalfKAv2_hm_JieQi";
 
     // Hash value embedded in the evaluation file
-    static constexpr std::uint32_t HashValue = 0xd17b100;
+    static constexpr std::uint32_t HashValue = 0x4a1e0c17u;
 
     // Number of feature dimensions
-    static constexpr IndexType Dimensions = 6 * static_cast<IndexType>(PS_NB);
+    static constexpr IndexType Dimensions = BagBase + 2 * BagPerSide;
 
 #define M(s) ((1 << 3) | s)
     // Stored as (mirror << 3 | bucket)
@@ -121,8 +143,9 @@ namespace Stockfish::Eval::NNUE::Features {
         0,  1,  2,  3,  4,  5,  6,  7,  8,
     };
 
-    // Maximum number of simultaneously active features.
-    static constexpr IndexType MaxActiveDimensions = 32;
+    // Maximum number of simultaneously active features: 32 pieces plus the bag
+    // features (at most 15 per side). Also bounds the per-update change lists.
+    static constexpr IndexType MaxActiveDimensions = 64;
     using IndexList = ValueList<IndexType, MaxActiveDimensions>;
 
     // Get a list of indices for active features

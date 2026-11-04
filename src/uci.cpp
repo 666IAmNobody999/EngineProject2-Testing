@@ -38,6 +38,8 @@ namespace Stockfish {
 
 extern vector<string> setup_bench(const Position&, istream&);
 
+namespace Datagen { void run(std::istream& is); }
+
 namespace {
 
   //fen rest side - - 0 1
@@ -69,6 +71,15 @@ namespace {
             fen += token + " ";
     else
         return;
+
+    // Refuse broken FENs (no king, two kings, ...) and keep the current position
+    // rather than searching an impossible one.
+    std::string err = Position::validate_fen(fen);
+    if (!err.empty())
+    {
+        sync_cout << "info string Invalid FEN (" << err << "): " << fen << sync_endl;
+        return;
+    }
 
     states = StateListPtr(new std::deque<StateInfo>(1)); // Drop the old state and create a new one
     pos.set(fen, &states->back(), Threads.main());
@@ -322,6 +333,20 @@ void UCI::loop(int argc, char* argv[]) {
       // These commands must not be used during a search!
       else if (token == "flip")     pos.flip();
       else if (token == "bench")    bench(pos, is, states);
+      // NNUE training data (datagen.cpp) and raw NNUE output of the position
+      else if (token == "gennnue")  Datagen::run(is);
+      else if (token == "nnueeval")
+      {
+          if (!Eval::useNNUE)
+              sync_cout << "info string NNUE not loaded (setoption name Use NNUE value true)" << sync_endl;
+          else
+          {
+              StateInfo st;
+              Position p;
+              p.set(pos.fen(), &st, Threads.main());
+              sync_cout << "nnue " << int(Eval::NNUE::evaluate(p)) << sync_endl;
+          }
+      }
       else if (token == "d")        sync_cout << pos << sync_endl;
       else if (token == "s") {
           istringstream is2(" depth 4");
