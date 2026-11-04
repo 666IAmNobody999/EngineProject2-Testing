@@ -74,11 +74,15 @@ class _MultiFile:
 
 def load_records(paths):
     """Memory-map one or more .bin files from `gennnue` (data stays on disk)."""
-    arrs = [np.memmap(p, dtype=RECORD_DTYPE, mode="r") for p in paths
-            if os.path.getsize(p) >= RECORD_DTYPE.itemsize]
+    # A generator killed while writing may leave a partial record at the end
+    # of a file: it is ignored.
+    arrs = []
     for p in paths:
-        if os.path.getsize(p) % RECORD_DTYPE.itemsize:
-            raise ValueError(f"{p}: size is not a multiple of {RECORD_DTYPE.itemsize} bytes")
+        n = os.path.getsize(p) // RECORD_DTYPE.itemsize
+        if n:
+            arrs.append(np.memmap(p, dtype=RECORD_DTYPE, mode="r", shape=(n,)))
+    if not arrs:
+        raise ValueError("no training data")
     return arrs[0] if len(arrs) == 1 else _MultiFile(arrs)
 
 

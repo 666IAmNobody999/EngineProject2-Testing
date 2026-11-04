@@ -55,6 +55,55 @@ jobs:
           name: ${{ env.EXE }}
           path: ${{ env.EXE }}
 
+  # GUI trainer (tools/nnue/trainer_gui.py) frozen into one exe with the
+  # universal engine inside. It still runs training with the user's own
+  # installed Python + numpy + torch.
+  Windows-NNUE-Trainer:
+    name: Windows-NNUE-Trainer
+    needs: Windows-x86-64
+    runs-on: windows-latest
+    env:
+      ENGINE: 幻神揭棋引擎-Windows-x86-64-universal.exe
+      TRAINER: 幻神揭棋引擎-NNUE訓練器-Windows.exe
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ENGINE }}
+          path: build-engine
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build trainer exe (PyInstaller)
+        run: |
+          Copy-Item "build-engine/$env:ENGINE" build-engine/pikajieqi.exe
+          python -m pip install --upgrade pip pyinstaller
+          python -m PyInstaller --noconfirm --onefile --windowed --name PikaJieQi-NNUE-Trainer `
+            --add-data "tools/nnue/jqnnue.py;scripts" --add-data "tools/nnue/train.py;scripts" `
+            --add-data "tools/nnue/export.py;scripts" --add-data "tools/nnue/gendata.py;scripts" `
+            --add-data "tools/nnue/verify.py;scripts" --add-data "tools/jieqi_match.py;scripts" `
+            --add-binary "build-engine/pikajieqi.exe;engine" tools/nnue/trainer_gui.py
+          Copy-Item dist/PikaJieQi-NNUE-Trainer.exe $env:TRAINER
+
+      - name: Self-test (generate -> train -> export -> engine check)
+        run: |
+          python -m pip install numpy torch --index-url https://download.pytorch.org/whl/cpu
+          $p = Start-Process -FilePath "dist/PikaJieQi-NNUE-Trainer.exe" -ArgumentList "--selftest", "$env:RUNNER_TEMP\st" -Wait -PassThru
+          Get-Content "$env:RUNNER_TEMP\st\selftest.log" -Encoding utf8 | Select-Object -Last 15
+          if ($p.ExitCode -ne 0) { throw "selftest exit code $($p.ExitCode)" }
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\st\selftest.log" -Pattern "SELFTEST PASSED" -Quiet)) { throw "selftest failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TRAINER }}
+          path: ${{ env.TRAINER }}
+
   Android:
     name: Android-${{ matrix.config.arch }}-universal
     runs-on: ubuntu-latest

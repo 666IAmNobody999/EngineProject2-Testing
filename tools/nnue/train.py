@@ -5,8 +5,10 @@
   python3 train.py data/*.bin --out nets
   python3 train.py data/*.bin --out nets --resume nets/checkpoint.pt
 
-Stop at any time with Ctrl+C (or SIGTERM): the trainer finishes the current
-step, writes nets/checkpoint.pt and nets/pikajieqi.nnue, and exits. A second
+Stop at any time with Ctrl+C (or SIGTERM, or by creating the file nets/STOP,
+which the Windows trainer GUI does): the trainer finishes the current step,
+writes nets/checkpoint.pt and nets/pikajieqi.nnue, and exits.
+nets/pikajieqi-best.nnue is always the net with the lowest validation loss. A second
 Ctrl+C aborts immediately. Every --save-every steps it also writes
 nets/pikajieqi.nnue plus a numbered copy, so a killed run still leaves a net.
 
@@ -92,7 +94,7 @@ def evaluate(model, recs, idx, args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("data", nargs="+", help=".bin files written by the engine command gennnue")
+    ap.add_argument("data", nargs="+", help=".bin files written by gennnue, or folders containing them")
     ap.add_argument("--out", default="nets", help="output directory (checkpoint + .nnue)")
     ap.add_argument("--l1", type=int, default=512, help="L1 width, must match the engine (make NNUE_L1=...)")
     ap.add_argument("--batch", type=int, default=8192)
@@ -108,6 +110,7 @@ def main():
     ap.add_argument("--threads", type=int, default=0, help="CPU threads (0 = PyTorch default)")
     ap.add_argument("--resume", default="", help="checkpoint.pt to continue from")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--stop-file", default="", help="stop when this file appears (default: <out>/STOP)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
 
@@ -116,7 +119,14 @@ def main():
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
 
-    recs = J.load_records(args.data)
+    # A directory stands for all part-*.bin files in it
+    paths = []
+    for d in args.data:
+        if os.path.isdir(d):
+            paths += sorted(os.path.join(d, f) for f in os.listdir(d) if f.startswith("part-") and f.endswith(".bin"))
+        else:
+            paths.append(d)
+    recs = J.load_records(paths)
     n = len(recs)
     if n < 1000:
         sys.exit(f"only {n} positions: generate more data first")
@@ -142,10 +152,29 @@ def main():
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
+    stop_file = args.stop_file or os.path.join(args.out, "STOP")
+    os.makedirs(args.out, exist_ok=True)
+    if os.path.exists(stop_file):
+        os.remove(stop_file)
+    best_file = os.path.join(args.out, "best.txt")
+    best = float(open(best_file).read().split()[0]) if args.resume and os.path.exists(best_file) else float("inf")
+
+    def keep_best(vl, step):
+        nonlocal_best[0] = min(nonlocal_best[0], vl)
+        if vl <= nonlocal_best[0]:
+            J.write_nnue(J.quantize(model), os.path.join(args.out, "pikajieqi-best.nnue"),
+                         f"PikaJieQi NNUE L1={model.l1} step={step} best")
+            with open(best_file, "w") as f:
+                f.write(f"{vl} {step}\n")
+            print(f"step {step}: new best validation loss {vl:.6f} -> pikajieqi-best.nnue", flush=True)
+    nonlocal_best = [best]
 
     total_steps = args.epochs * steps_per_epoch
     t0, run_loss, run_n = time.time(), 0.0, 0
     while step < total_steps and not stop_requested:
+        if step % 20 == 0 and os.path.exists(stop_file):
+            print("stop file found: saving checkpoint and network ...", flush=True)
+            break
         idx = np.sort(rng.choice(train_idx, size=args.batch, replace=False if len(train_idx) > args.batch else True))
         us, them, b, s, r = batch_tensors(recs, idx)
         out = model(us.to(args.device), them.to(args.device), b.to(args.device))
@@ -168,9 +197,15 @@ def main():
             vl = evaluate(model, recs, val_idx, args) if nval else float("nan")
             net = save(model, opt, sched, step, args, tag=step)
             print(f"step {step}: validation loss {vl:.6f}, saved {net}", flush=True)
+            if nval:
+                keep_best(vl, step)
 
     vl = evaluate(model, recs, val_idx, args) if nval else float("nan")
     net = save(model, opt, sched, step, args, tag=step)
+    if nval:
+        keep_best(vl, step)
+    if os.path.exists(stop_file):
+        os.remove(stop_file)
     print(f"finished at step {step}: validation loss {vl:.6f}")
     print(f"network: {net}   (resume with --resume {os.path.join(args.out, 'checkpoint.pt')})")
 

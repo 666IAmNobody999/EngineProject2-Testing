@@ -17,8 +17,14 @@ import threading
 import time
 
 
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+procs = []
+
+
 def worker(args, seed, positions, log):
-    out = os.path.join(args.out, f"part-{seed}.bin")
+    # The engine runs inside the data folder and writes a relative file name,
+    # so the folder may contain spaces / non-ASCII characters.
+    out = f"part-{seed}.bin"
     cmds = [f"setoption name Hash value {args.hash}", "setoption name Threads value 1"]
     if args.net:
         cmds += [f"setoption name EvalFile value {os.path.abspath(args.net)}", "setoption name Use NNUE value true"]
@@ -27,7 +33,10 @@ def worker(args, seed, positions, log):
     if args.book:
         gen += f" book={os.path.abspath(args.book)}"
     cmds += [gen, "quit"]
-    p = subprocess.Popen([args.engine], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+    p = subprocess.Popen([os.path.abspath(args.engine)], cwd=args.out, stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
+                         creationflags=CREATE_NO_WINDOW)
+    procs.append(p)
     p.stdin.write("\n".join(cmds) + "\n")
     p.stdin.flush()
     for line in p.stdout:
@@ -51,9 +60,13 @@ def main():
     ap.add_argument("--seed", type=int, default=int(time.time()) % 100000 * 100)
     ap.add_argument("--net", default="", help="search with this NNUE network")
     ap.add_argument("--book", default="", help="file with start FENs, one per line")
+    ap.add_argument("--stop-file", default="", help="stop when this file appears (default: <out>/STOP)")
     args = ap.parse_args()
+    stop_file = args.stop_file or os.path.join(args.out, "STOP")
 
     os.makedirs(args.out, exist_ok=True)
+    if os.path.exists(stop_file):
+        os.remove(stop_file)
     lock = threading.Lock()
 
     def log(s):
@@ -65,12 +78,24 @@ def main():
           for i in range(args.workers)]
     for t in ts:
         t.start()
+    def stop_all(msg):
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+        print(msg, "- finished games are already saved in", args.out, flush=True)
+
     try:
-        for t in ts:
-            t.join()
+        while any(t.is_alive() for t in ts):
+            if os.path.exists(stop_file):
+                stop_all("stop file found")
+                os.remove(stop_file)
+                sys.exit(0)
+            time.sleep(1)
     except KeyboardInterrupt:
-        print("interrupted: finished games are already saved in", args.out)
+        stop_all("interrupted")
         sys.exit(1)
+    total = sum(os.path.getsize(os.path.join(args.out, f)) for f in os.listdir(args.out) if f.endswith(".bin"))
+    print(f"done: {total // 264} positions in {args.out}", flush=True)
 
 
 if __name__ == "__main__":
