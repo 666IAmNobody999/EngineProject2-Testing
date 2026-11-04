@@ -91,7 +91,7 @@ def probe_python(cmd):
             "try:\n import numpy, torch; print('OK')\nexcept Exception: print('NO')")
     try:
         r = subprocess.run(cmd + ["-c", code], capture_output=True,
-                           text=True, timeout=60, creationflags=CREATE_NO_WINDOW, env=child_env())
+                           encoding="utf-8", errors="replace", timeout=60, creationflags=CREATE_NO_WINDOW, env=child_env())
         lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
         if len(lines) < 2 or not os.path.exists(lines[-2]):
             return "", False
@@ -110,7 +110,7 @@ def find_python(preferred=""):
     if IS_WIN:
         cands += [["py", "-3"], ["python"], ["python3"]]
         try:  # every interpreter the py launcher knows about
-            r = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=20,
+            r = subprocess.run(["py", "-0p"], capture_output=True, encoding="utf-8", errors="replace", timeout=20,
                                creationflags=CREATE_NO_WINDOW, env=child_env())
             for line in r.stdout.splitlines():
                 m = re.search(r"([A-Za-z]:\\\S.*python\.exe)\s*$", line.strip(), re.I)
@@ -227,6 +227,15 @@ def selftest(work):
     rc = run_job([py, script_path("verify.py"), "--engine", eng, "--net", net,
                   "--data", os.path.join(work, "check.bin"), "--fen", os.path.join(work, "check.fen"),
                   "--count", "200"], log=log)
+    if rc == 0:
+        log("match: classical vs NNUE, 2 games")
+        out = []
+        rc = run_job([py, script_path("jieqi_match.py"), "--e1", eng, "--e2", eng, "--games", "2",
+                      "--movetime", "20", "--concurrency", "2", "--o1", "Hash=16",
+                      "--o2", f"Hash=16,Use NNUE=true,EvalFile={net}"],
+                     log=lambda s: (out.append(s), log(s)))
+        if rc == 0 and not any(s.startswith("FINAL") for s in out):
+            rc = 1
     log("SELFTEST " + ("PASSED" if rc == 0 else "FAILED"))
     return rc
 

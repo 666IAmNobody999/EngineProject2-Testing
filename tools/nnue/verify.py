@@ -66,7 +66,7 @@ def main():
 
     q = read_net(args.net)
     recs = J.load_records([args.data])
-    fens = [l.split("|")[0].strip() for l in open(args.fen) if l.strip()]
+    fens = [l.split("|")[0].strip() for l in open(args.fen, encoding="utf-8", errors="replace") if l.strip()]
     n = min(args.count, len(recs), len(fens))
     ref = [J.reference_eval(q, recs[i]) for i in range(n)]
 
@@ -74,7 +74,7 @@ def main():
     for f in fens[:n]:
         cmds += [f"position fen {f}", "nnueeval"]
     cmds.append("quit")
-    out = subprocess.run([args.engine], input="\n".join(cmds) + "\n", capture_output=True, text=True).stdout
+    out = subprocess.run([args.engine], input="\n".join(cmds) + "\n", capture_output=True, encoding="utf-8", errors="replace").stdout
     eng = [int(l.split()[1]) for l in out.splitlines() if l.startswith("nnue ")]
     if len(eng) != n:
         sys.exit(f"engine returned {len(eng)} values for {n} positions:\n{out[-2000:]}")

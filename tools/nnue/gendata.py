@@ -34,7 +34,7 @@ def worker(args, seed, positions, log):
         gen += f" book={os.path.abspath(args.book)}"
     cmds += [gen, "quit"]
     p = subprocess.Popen([os.path.abspath(args.engine)], cwd=args.out, stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace", bufsize=1,
                          creationflags=CREATE_NO_WINDOW)
     procs.append(p)
     p.stdin.write("\n".join(cmds) + "\n")

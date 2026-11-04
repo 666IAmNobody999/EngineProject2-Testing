@@ -43,7 +43,7 @@ def start_board():
 class Engine:
     def __init__(self, path, options, log=None):
         self.p = subprocess.Popen([path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                  stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", bufsize=1)
         self.log = log
         self.send("uci")
         self.wait_for("uciok")
@@ -110,7 +110,7 @@ def board_key(board, stm):
 def play_game(args_tuple):
     (gid, e1, e2, o1, o2, go_cmd, seed, swap, adj_cp, adj_plies, max_plies, logdir) = args_tuple
     rng = random.Random(seed)
-    log = open(os.path.join(logdir, f"game{gid}.log"), "w") if logdir else None
+    log = open(os.path.join(logdir, f"game{gid}.log"), "w", encoding="utf-8") if logdir else None
     # red = engine index 0 unless swapped
     paths = [e1, e2]
     opts = [o1, o2]
