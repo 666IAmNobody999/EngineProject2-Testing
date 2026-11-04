@@ -361,9 +361,9 @@ private:
 // it correctly handles non-linear score distributions (e.g. when most
 // reveals are slightly positive but one is a forced loss).
 // scaling factor optimized for xiangqi eval range (~±600 cp)
-#ifndef FLIP_SCALING
-#define FLIP_SCALING 360.83524
-#endif
+// FLIP_SCALING is now a runtime value (centipawns) so it can be tuned via UCI.
+namespace DarkParams { extern int flipScaling; }
+#define FLIP_SCALING double(DarkParams::flipScaling)
 
 class ScoreCalc {
 public:
@@ -372,7 +372,7 @@ public:
 
     void setUs(bool us) { _us = !us; }
 
-    void append(Piece p, int score, int count) {
+    void append(Piece, int score, int count) {
         if (!_us) score *= -1;
         if (_min > score)_min = score;
         if (_max < score)_max = score;
@@ -380,19 +380,20 @@ public:
         // as-is: _totalScore/_totalCount/_min/_max stay bit-identical to upstream,
         // so every case upstream already gets right is untouched.
         if (score <= -VALUE_MATE_IN_MAX_PLY) _mateLossCount += count;
+        // Keep the unclamped score so mate scores survive single/all-decisive reveals
+        if (_n < 8) _rawScores[_n++] = {score, count};
+        if (std::abs(score) <= VALUE_MATE_IN_MAX_PLY) _allDecisive = false;
         score = std::clamp(score, -DARKVALRATE, DARKVALRATE);
+        // Running winrate sum, so CalcEvg()/bound() need no second pass
+        _winrateSum += count / (1.0 + std::exp(-double(score) / FLIP_SCALING));
         _totalScore += score * count;
         _totalCount += count;
-        // ★ Store raw scores for sigmoid aggregation
-        _rawScores.emplace_back(score, count);
     }
 
     Value CalcEvg() {
-        int min = std::clamp(_min, -DARKVALRATE, DARKVALRATE);
-        
         // ★ PORTED: Winrate-based aggregation (sigmoid)
         // From official Pikafish jieqi branch commit 9b963f7
-        if (_rawScores.size() == 1) {
+        if (_n == 1) {
             // Single reveal — return directly (no aggregation needed)
             int v = _rawScores[0].first;
             if (!_us) v *= -1;
@@ -403,7 +404,7 @@ public:
         bool allDecisive = true;
         Value bestWinMate = VALUE_MATE;
         Value bestLossMate = -VALUE_MATE;
-        for (const auto& [score, count] : _rawScores) {
+        for (int i = 0; i < _n; ++i) { const auto& [score, count] = _rawScores[i];
             int s = score;
             if (std::abs(s) > VALUE_MATE_IN_MAX_PLY) {
                 if (s > 0) {
@@ -428,14 +429,7 @@ public:
         }
 
         // ★ Sigmoid aggregation: convert each score to winrate, average, convert back
-        double winrateSum = 0.0;
-        int totalCount = 0;
-        for (const auto& [score, count] : _rawScores) {
-            double winrate = 1.0 / (1.0 + std::exp(-double(score) / FLIP_SCALING));
-            winrateSum += winrate * count;
-            totalCount += count;
-        }
-        double expectedWinrate = winrateSum / totalCount;
+        double expectedWinrate = _winrateSum / _totalCount;
         
         // Convert back to score
         const double epsilon = 1e-9;
@@ -454,6 +448,32 @@ public:
         return Value(v);
     }
 
+    // Bound of CalcEvg() (from the parent's point of view, like CalcEvg itself)
+    // if the `rest` outcomes not searched yet all turn out best (upper == true)
+    // or worst (upper == false) for the side to move at the parent. Returns
+    // +-VALUE_INFINITE when no useful bound exists (all searched outcomes are
+    // mate scores, or the MATELOSS override could still fire). Used to stop the
+    // reveal loop early (Star1-style pruning of chance nodes).
+    Value bound(int rest, bool upper) const {
+        const Value unbounded = upper ? VALUE_INFINITE : -VALUE_INFINITE;
+        if (_n == 0 || rest <= 0)
+            return unbounded;
+        // Scores are stored from the first side's view: translate the direction
+        const bool sUpper = _us ? upper : !upper;
+        if (_allDecisive)
+            return unbounded;
+        if (!sUpper && (_mateLossCount + rest) * MATELOSS_NUM >= (_totalCount + rest) * MATELOSS_DEN)
+            return unbounded;
+        // Remaining outcomes at winrate 1.0 (upper) or 0.0 (lower)
+        double sum = _winrateSum + (sUpper ? rest : 0);
+        const double epsilon = 1e-9;
+        double e = std::clamp(sum / (_totalCount + rest), epsilon, 1.0 - epsilon);
+        int v = int(std::clamp(std::log(e / (1.0 - e)) * FLIP_SCALING,
+                               double(VALUE_MATED_IN_MAX_PLY + 1), double(VALUE_MATE_IN_MAX_PLY - 1)));
+        if (!_us) v = -v;
+        return Value(v);
+    }
+
 private:
     bool _us;
     int _Ldepth;
@@ -466,8 +486,11 @@ private:
     int _min = 99999999;
     int _max = -99999999;
     int _mateLossCount = 0;
+    double _winrateSum = 0.0;
+    bool _allDecisive = true;
     // ★ PORTED: Store raw scores for sigmoid aggregation
-    std::vector<std::pair<int, int>> _rawScores;
+    std::pair<int, int> _rawScores[8];
+    int _n = 0;
 };
 
 

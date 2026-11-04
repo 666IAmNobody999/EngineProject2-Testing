@@ -139,40 +139,33 @@ public:
 } // namespace
 
 
-/// use_english() tests if the current language environment is Chinese Simplified
-static bool use_english() {
-#ifdef _WIN32
-    return GetSystemDefaultLangID() != 0x0804;
-#else
-    return true;
-#endif
-}
-
 
 /// engine_info() returns the full name of the current PikaFish version. This
 /// will be either "Pikafish YYYY-MM-DD" (where YYYY-MM-DD is the date when
 /// the program was compiled) or "Pikafish <Version>", depending on whether
 /// Version is empty.
 
+// Returns the full name of the current 幻神揭棋引擎 (PikaJieQi-based) version:
+//      幻神揭棋引擎 YYYYMMDD        (build date)   or
+//      幻神揭棋引擎 <Version>       when Version is set.
+// "幻神揭棋引擎" is written as UTF-8 bytes so the output does not depend on
+// the encoding this file is saved in (same convention as 幻神引擎).
 string engine_info(bool to_uci) {
 
   const string months("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec");
   string month, day, year;
   stringstream ss, date(__DATE__); // From compiler, format is "Sep 21 2008"
 
-  ss << (use_english() ? "Pikafish " : "皮卡鱼 ") << Version << setfill('0');
+  ss << "\xE5\xB9\xBB\xE7\xA5\x9E\xE6\x8F\xAD\xE6\xA3\x8B\xE5\xBC\x95\xE6\x93\x8E" " " << Version << setfill('0');
 
   if (Version.empty())
   {
       date >> month >> day >> year;
-      ss << year << "-" << setw(2) << (1 + months.find(month) / 4) << "-" << setw(2) << day;
+      ss << year << setw(2) << (1 + months.find(month) / 4) << setw(2) << day;
   }
 
-  if (use_english())
-      ss << (to_uci ? "\nid author " : " by ") << "the Pikafish developers (see AUTHORS file)";
-  else
-      ss << (to_uci ? "\nid author " : " 开发团队: ") << "皮卡鱼开发团队(详情请查看作者文件)"
-         << (to_uci ? "" : "\n皮卡鱼(http://pikafish.org)是开源免费的象棋引擎, 欢迎加入我们的QQ群: 755655813");
+  ss << (to_uci ? "\nid author " : " by ")
+     << "\xE5\xB9\xBB\xE7\xA5\x9E" " and the Pikafish developers (jieqi branch)";
 
   return ss.str();
 }

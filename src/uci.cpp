@@ -30,6 +30,7 @@
 #include "timeman.h"
 #include "tt.h"
 #include "uci.h"
+#include "winperf.h"
 
 using namespace std;
 
@@ -310,10 +311,11 @@ void UCI::loop(int argc, char* argv[]) {
       else if (token == "banmoves")
           while (is >> token)
               banmoves.push_back(UCI::to_move(pos, token));
-      else if (token == "go")         go(pos, is, states, banmoves), banmoves.clear();
+      else if (token == "go")         WinPerf::apply_process_tuning(),  // GUIs may lower it after launch
+                                      go(pos, is, states, banmoves), banmoves.clear();
       else if (token == "position")   position(pos, is, states);
       else if (token == "fen" || token == "startpos") is.seekg(0), position(pos, is, states);
-      else if (token == "ucinewgame") Search::clear();
+      else if (token == "ucinewgame") WinPerf::idle_other_pikafish(), Search::clear();
       else if (token == "isready")    sync_cout << "readyok" << sync_endl;
 
       // Add custom non-UCI commands, mainly for debugging purposes.

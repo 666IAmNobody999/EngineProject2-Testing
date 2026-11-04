@@ -34,6 +34,19 @@ using std::string;
 
 namespace Stockfish {
 
+namespace DarkParams {
+  // Defaults chosen by self-play (tools/jieqi_match.py, 100 games each at
+  // 100 ms/move): DarkMode 1 beat the old depth-0 expansion by ~+60 Elo, and
+  // DarkMaxDepth 1/2/3 were within noise of each other.
+  int maxDarkDepth = 2;
+  int qDarkDepth   = 1;
+  int maxDarkTypes = 43;
+  int flipScaling  = 361;
+  int darkMode     = 1;
+  int darkIndependent = 0;
+  int darkPrune    = 1;
+}
+
 namespace Zobrist {
 
   Key psq[PIECE_NB][SQUARE_NB];
@@ -558,6 +571,10 @@ bool Position::getDark(StateInfo& newSt, int& typecount, bool& isDarkDepth) {
     typecount = 0;
     Value darkV = Value(restPieces[us].evgValue());
     isDarkDepth = st->darkDepth > MAXDARKDEPTH || st->darkTypes > MAXDARKTYPES;
+    // DarkMode 1: beyond the reveal budget the piece simply stays hidden (it is
+    // valued as the average of the remaining hidden pieces) and the line is
+    // searched at full depth, instead of expanding every outcome at depth 0.
+    if (DarkParams::darkMode == 1 && isDarkDepth) return false;
     if (st->darkDepth - MAXDARKDEPTH > QDARKDEPTH)return false;
     while (st->darkTypeIndex < BISHOP)
     {

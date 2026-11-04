@@ -120,6 +120,21 @@ int cutredu_1 = 2;
 int cutredu_2 = 18;
 int cutredu_3 = 7;
 
+// Reveal-expansion limits and the winrate scaling (K) of the outcome merge,
+// exposed as UCI options (DarkMaxDepth, DarkQDepth, DarkMaxTypes, DarkFlipScaling).
+int& DarkMaxDepth = DarkParams::maxDarkDepth;
+int& DarkQDepth   = DarkParams::qDarkDepth;
+int& DarkMaxTypes = DarkParams::maxDarkTypes;
+int& DarkFlipScaling = DarkParams::flipScaling;
+int& DarkMode     = DarkParams::darkMode;
+int& DarkIndependent = DarkParams::darkIndependent;
+int& DarkPrune    = DarkParams::darkPrune;
+int SeekMateOn = 1;
+TUNE(SetRange(0, 1), SeekMateOn);
+TUNE(SetRange(1, 8), DarkMaxDepth, SetRange(0, 4), DarkQDepth,
+     SetRange(1, 100000), DarkMaxTypes, SetRange(100, 1200), DarkFlipScaling,
+     SetRange(0, 1), DarkMode, SetRange(0, 1), DarkIndependent, SetRange(0, 1), DarkPrune);
+
 /*
 TUNE(futi_mar, redu_1, redu_2, redu_3, st_bo_1, st_bo_2, st_bo_3, st_bo_4, Futi_1, Numov_0, Numov_1,
 Numov_2, Numov_3, Numov_4, Numov_5, Numov_6, Numov_9, probCut_1, probCut_2, probCut_3, comp_1, delt_1,
@@ -423,6 +438,11 @@ void Thread::search() {
       {
           // Reset UCI info selDepth for each depth and each PV line
           selDepth = 0;
+
+          // Ported from 幻神: once the root score is clearly decisive, switch the
+          // search into mate-seeking mode (fewer speculative prunings, check
+          // extensions). Do not tune these values, they are not about strength.
+          seekMate = SeekMateOn && std::abs(rootMoves[pvIdx].previousScore) >= 750 + 220000 / (rootDepth * rootDepth);
 
           // Reset aspiration window starting size
           if (rootDepth >= 4)
@@ -835,6 +855,7 @@ namespace {
     // return a fail low.
     if (!PvNode
 	    && !improving
+        && !thisThread->seekMate
         && eval < alpha - Razo_1 - Razo_2 * depth * depth)
     {
         value = qsearch<NonPV>(pos, ss, alpha - 1, alpha);
@@ -852,7 +873,7 @@ namespace {
     // Step 7. Futility pruning: child node (~25 Elo).
     // The depth condition is important for mate finding.
     if (   !ss->ttPv
-        &&  depth < 8
+        &&  depth < (thisThread->seekMate ? 6 : 8)
         &&  eval - futility_margin(depth, improving) - (ss-1)->statScore / Futi_1 >= beta
         &&  eval >= beta
         &&  eval < 25970) // larger than VALUE_KNOWN_WIN, but smaller than TB wins.
@@ -871,6 +892,7 @@ namespace {
 
         // Null move dynamic reduction based on depth, eval and complexity of position
         Depth R = std::min(int(eval - beta) / Numov_5, 0) + depth / 3 + 4 - (complexity > Numov_9);
+        R -= thisThread->seekMate * R / 2;
 
         ss->currentMove = MOVE_NULL;
         ss->continuationHistory = &thisThread->continuationHistory[0][0][NO_PIECE][0];
@@ -1048,6 +1070,7 @@ moves_loop: // When in check, search starts here
         && ttValue >= probCutBeta
         && abs(ttValue) <= VALUE_KNOWN_WIN
         && abs(beta) <= VALUE_KNOWN_WIN
+        && !thisThread->seekMate
         ) {
 #if SEARCHDEBUG
         if (debugPrint) {
@@ -1229,7 +1252,8 @@ moves_loop: // When in check, search starts here
            /* &&  ttValue != VALUE_NONE Already implicit in the next condition */
               &&  abs(ttValue) < VALUE_KNOWN_WIN
               && (tte->bound() & BOUND_LOWER)
-              &&  tte->depth() >= depth - 3)
+              &&  tte->depth() >= depth - 3
+              && !thisThread->seekMate)
           {
               Value singularBeta = ttValue - (exten_2 + (ss->ttPv && !PvNode)) * depth;
               Depth singularDepth = (depth - 1) / 2;
@@ -1274,10 +1298,11 @@ moves_loop: // When in check, search starts here
                   extension = -1;
           }
 
-          // Check extensions (~1 Elo)
+          // Check extensions (~1 Elo). Ported from 幻神: when seeking a mate,
+          // extend every checking move so forcing lines are seen earlier.
           else if (   givesCheck
-                   && depth > exten_4
-                   && abs(ss->staticEval) > exten_5)
+                   && (   thisThread->seekMate
+                       || (depth > exten_4 && abs(ss->staticEval) > exten_5)))
               extension = 1;
 
           // Quiet ttMove extensions (~0 Elo)
@@ -1299,188 +1324,178 @@ moves_loop: // When in check, search starts here
                                                                 [movedPiece]
                                                                 [to_sq(move)];
 
-      // Step 15. Make the move
-      //pos.do_move(move, st, givesCheck);
+      // Step 15. Make the move. For a move of a hidden piece do_move() returns
+      // true and the position is then expanded into every possible reveal
+      // outcome (chance node). Each outcome is searched independently below
+      // with the usual LMR / re-search / PV logic and the results are merged by
+      // ScoreCalc (winrate average).
+      const bool darkMove = pos.do_move(move, st, givesCheck);
 
-      Value vTmp = value;
-      int darkTryTimes = 0;
-      bool fromWhile = false;
-      StateInfo darkSt;
-      std::string fen3, mvStr = UCI::move(move);
-      int tryTypeTimes = 0, typecount = 0;
-      ScoreCalc SC(Limits.depth, depth, pos.isFirstSide());
-      bool isDarkDepth = false;
-#if SEARCHDEBUG
-      fen3 = pos.fen();
-      std::string DarkSearchInfo = "";
-#endif
-      if (mvStr == "g4g9") {
-          int a = 0;
-      }
-      if (pos.do_move(move, st, givesCheck)) {
+      // Searches one child position (one reveal outcome, or the plain child
+      // for a normal move) and returns its value from our point of view.
+      // zeroDepth forces a qsearch when the reveal budget is exhausted.
+      // `prior` is the lowest value of the reveal outcomes searched before this
+      // one (VALUE_NONE if none); with DarkIndependent == 0 the re-search
+      // decisions use min(v, prior) like the original PikaJieQi code.
+      auto searchChild = [&](bool zeroDepth, Value prior = VALUE_NONE) -> Value {
+
+          Depth nd = newDepth;
+          Value v  = VALUE_NONE;
+          auto dec = [&](Value x) { return (!DarkParams::darkIndependent && prior != VALUE_NONE) ? std::min(x, prior) : x; };
+
+          // Step 16. Late moves reduction / extension (LMR, ~98 Elo)
+          // We use various heuristics for the sons of a node after the first son has
+          // been searched. In general we would like to reduce them, but there are many
+          // cases where we extend a son if it has good chances to be "interesting".
+          if (    depth >= 2
+              &&  moveCount > 1 + (PvNode && ss->ply <= 1)
+              && (   !ss->ttPv
+                  || !capture
+                  || (cutNode && (ss-1)->moveCount > 1)))
+          {
+              Depth r = reduction(improving, depth, moveCount, delta, thisThread->rootDelta);
+
+              // Decrease reduction if position is or has been on the PV
+              // and node is not likely to fail low. (~3 Elo)
+              if (   ss->ttPv
+                  && !likelyFailLow)
+                  r -= decr_3 + decr_4 / (decr_5 + depth);
+
+              // Decrease reduction if opponent's move count is high (~1 Elo)
+              if ((ss-1)->moveCount > 7)
+                  r--;
+
+              // Increase reduction for cut nodes (~3 Elo)
+              if (cutNode)
+                  r += cutredu_1 + cutredu_2 / (cutredu_3 + depth);
+
+              // Increase reduction if ttMove is a capture (~3 Elo)
+              if (ttCapture)
+                  r++;
+
+              // Decrease reduction for PvNodes based on depth
+              if (PvNode)
+                  r -= pvredu_1 + pvredu_2 / (pvredu_3 + depth);
+
+              // Decrease reduction if ttMove has been singularly extended (~1 Elo)
+              if (singularQuietLMR)
+                  r--;
+
+              // Increase reduction if next ply has a lot of fail high else reset count to 0
+              if ((ss+1)->cutoffCnt > 3 && !PvNode)
+                  r++;
+
+              // Ported from 幻神: when seeking a mate, reduce checking moves
+              // less and non-checking moves more (forcing lines first).
+              if (thisThread->seekMate && r > 0)
+                  r += (givesCheck ? -(r + 2) : (r + 1)) / 4;
+
+              ss->statScore =  2 * thisThread->mainHistory[us][from_to(move)]
+                             + (*contHist[0])[movedPiece][to_sq(move)]
+                             + (*contHist[1])[movedPiece][to_sq(move)]
+                             + (*contHist[3])[movedPiece][to_sq(move)]
+                             - statsc_1;
+
+              // Decrease/increase reduction for moves with a good/bad history (~30 Elo)
+              r -= ss->statScore / (decr_6 + decr_7 * (depth > decr_8 && depth < decr_9));
+
+              // In general we want to cap the LMR depth search at newDepth, but when
+              // reduction is negative, we allow this move a limited search extension
+              // beyond the first move depth. This may lead to hidden double extensions.
+              Depth d = std::clamp(nd - r, 1, nd + 1);
+
+              v = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, zeroDepth ? 0 : d, true);
+
+              // Do full depth search when reduced LMR search fails high
+              if (dec(v) > alpha && d < nd)
+              {
+                  const bool doDeeperSearch = dec(v) > (alpha + lmrse_1 + lmrse_2 * (nd - d));
+                  const bool doEvenDeeperSearch = dec(v) > (alpha + lmrse_3 + lmrse_4 * (nd - d));
+                  const bool doShallowerSearch = dec(v) < bestValue + nd;
+
+                  nd += doDeeperSearch - doShallowerSearch + doEvenDeeperSearch;
+                  if (nd > d)
+                      v = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, zeroDepth ? 0 : nd, !cutNode);
+
+                  int bonus = dec(v) > alpha ?  stat_bonus(nd)
+                                             : -stat_bonus(nd);
+
+                  if (capture)
+                      bonus /= lmrse_5;
+
+                  update_continuation_histories(ss, movedPiece, to_sq(move), bonus);
+              }
+          }
+
+          // Step 17. Full depth search when LMR is skipped
+          else if (!PvNode || moveCount > 1)
+              v = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, zeroDepth ? 0 : nd, !cutNode);
+
+          // For PV nodes only, do a full PV search on the first move or after a fail
+          // high (in the latter case search only if value < beta), otherwise let the
+          // parent node fail low with value <= alpha and try another move.
+          if (PvNode && (moveCount == 1 || (dec(v) > alpha && (rootNode || dec(v) < beta))))
+          {
+              (ss+1)->pv = pv;
+              (ss+1)->pv[0] = MOVE_NONE;
+
+              v = -search<PV>(pos, ss+1, -beta, -alpha,
+                  zeroDepth ? 0 : std::min(maxNextDepth, nd), false);
+          }
+
+          return v;
+      };
+
+      if (darkMove)
+      {
+          StateInfo darkSt;
+          int typecount = 0, searched = 0;
+          bool isDarkDepth = false;
+          ScoreCalc SC(Limits.depth, depth, pos.isFirstSide());
           SC.setUs(pos.isFirstSide());
+          const int total = pos.rest_count(~pos.side_to_move());
+          Value pruneBound = VALUE_NONE, prior = VALUE_NONE;
+
           while (pos.getDark(darkSt, typecount, isDarkDepth))
           {
-              fromWhile = true;
-              goto dark_calc;
-dark_while:              
-              tryTypeTimes++;
-              SC.append(pos.piece_on(to_sq(move)), vTmp, typecount);
-#if SEARCHDEBUG
-              if (darkPrint) {
-                  if (!DarkSearchInfo.empty())DarkSearchInfo.append(",");
-                  DarkSearchInfo.append(std::to_string(pos.piece_on(to_sq(move))));
-                  DarkSearchInfo.append(" ");
-                  DarkSearchInfo.append(std::to_string(vTmp));
-                  DarkSearchInfo.append(" ");
-                  DarkSearchInfo.append(std::to_string(typecount));
-                  DarkSearchInfo.append(" ");
-              }
-
-#endif
+              Value v = searchChild(isDarkDepth, prior);
+              prior = prior == VALUE_NONE ? v : std::min(prior, v);
+              SC.append(pos.piece_on(to_sq(move)), v, typecount);
               pos.setDark();
+              searched += typecount;
+
+              if (Threads.stop.load(std::memory_order_relaxed))
+                  break;
+
+              // Star1-style pruning of the chance node: stop expanding reveal
+              // outcomes once even the best (worst) possible remaining outcomes
+              // cannot lift the merged value above alpha (below beta). The root
+              // keeps exact values for move ordering and score reporting.
+              if (!rootNode && DarkParams::darkPrune && searched < total)
+              {
+                  Value ub = SC.bound(total - searched, true);
+                  if (ub <= alpha) { pruneBound = ub; break; }
+                  Value lb = SC.bound(total - searched, false);
+                  if (lb >= beta)  { pruneBound = lb; break; }
+              }
           }
-          fromWhile = false;
-          if (darkTryTimes == 0) {
-              pos.undo_move(move);
-              continue;
-          }
+
+          if (searched == 0)
+              // Reveal budget exhausted: search the child with the piece still
+              // hidden (valued as the average of the remaining pieces) instead of
+              // dropping the move, which could otherwise fake a mate.
+              value = searchChild(false);
           else
           {
               value = SC.CalcEvg();
-#if SEARCHDEBUG
-              if (darkPrint) {
-                  DarkSearchInfo.append("----evg:");
-                  DarkSearchInfo.append(std::to_string(value));
-                  DarkSearchInfo.append(" ");
-              }
-#endif 
-              goto dark_undo;
+              if (pruneBound != VALUE_NONE)
+                  value = pruneBound <= alpha ? std::min(value, pruneBound)
+                                              : std::max(value, pruneBound);
           }
       }
       else
-      {
-          goto dark_calc;
-      }
+          value = searchChild(false);
 
-      
-
-dark_calc:
-      // Step 16. Late moves reduction / extension (LMR, ~98 Elo)
-      // We use various heuristics for the sons of a node after the first son has
-      // been searched. In general we would like to reduce them, but there are many
-      // cases where we extend a son if it has good chances to be "interesting".
-      if (    depth >= 2
-          &&  moveCount > 1 + (PvNode && ss->ply <= 1)
-          && (   !ss->ttPv
-              || !capture
-              || (cutNode && (ss-1)->moveCount > 1)))
-      {
-          Depth r = reduction(improving, depth, moveCount, delta, thisThread->rootDelta);
-
-          // Decrease reduction if position is or has been on the PV
-          // and node is not likely to fail low. (~3 Elo)
-          if (   ss->ttPv
-              && !likelyFailLow)
-              r -= decr_3 + decr_4 / (decr_5 + depth);
-
-          // Decrease reduction if opponent's move count is high (~1 Elo)
-          if ((ss-1)->moveCount > 7)
-              r--;
-
-          // Increase reduction for cut nodes (~3 Elo)
-          if (cutNode)
-              r += cutredu_1 + cutredu_2 / (cutredu_3 + depth);
-
-          // Increase reduction if ttMove is a capture (~3 Elo)
-          if (ttCapture)
-              r++;
-
-          // Decrease reduction for PvNodes based on depth
-          if (PvNode)
-              r -= pvredu_1 + pvredu_2 / (pvredu_3 + depth);
-
-          // Decrease reduction if ttMove has been singularly extended (~1 Elo)
-          if (singularQuietLMR)
-              r--;
-
-          // Increase reduction if next ply has a lot of fail high else reset count to 0
-          if ((ss+1)->cutoffCnt > 3 && !PvNode)
-              r++;
-
-          ss->statScore =  2 * thisThread->mainHistory[us][from_to(move)]
-                         + (*contHist[0])[movedPiece][to_sq(move)]
-                         + (*contHist[1])[movedPiece][to_sq(move)]
-                         + (*contHist[3])[movedPiece][to_sq(move)]
-                         - statsc_1;
-
-          // Decrease/increase reduction for moves with a good/bad history (~30 Elo)
-          r -= ss->statScore / (decr_6 + decr_7 * (depth > decr_8 && depth < decr_9));
-
-          // In general we want to cap the LMR depth search at newDepth, but when
-          // reduction is negative, we allow this move a limited search extension
-          // beyond the first move depth. This may lead to hidden double extensions.
-          Depth d = std::clamp(newDepth - r, 1, newDepth + 1);
-
-          vTmp = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, isDarkDepth ? 0 : d, true);
-
-          if (darkTryTimes == 0 || vTmp < value) value = vTmp;
-          darkTryTimes++;
-
-          // Do full depth search when reduced LMR search fails high
-          if (value > alpha && d < newDepth)
-          {
-              const bool doDeeperSearch = value > (alpha + lmrse_1 + lmrse_2 * (newDepth - d));
-              const bool doEvenDeeperSearch = value > (alpha + lmrse_3 + lmrse_4 * (newDepth - d));
-              const bool doShallowerSearch = value < bestValue + newDepth;
-              
-              newDepth += doDeeperSearch - doShallowerSearch + doEvenDeeperSearch;
-              if (newDepth > d)
-                  vTmp = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, isDarkDepth ? 0 : newDepth, !cutNode);
-
-              if (darkTryTimes == 0 || vTmp < value) value = vTmp;
-
-              darkTryTimes++;
-
-              int bonus = value > alpha ?  stat_bonus(newDepth)
-                                        : -stat_bonus(newDepth);
-
-              if (capture)
-                  bonus /= lmrse_5;
-
-              update_continuation_histories(ss, movedPiece, to_sq(move), bonus);
-          }
-      }
-
-      // Step 17. Full depth search when LMR is skipped
-      else if (!PvNode || moveCount > 1)
-      {
-              vTmp = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, isDarkDepth ? 0 : newDepth, !cutNode);
-
-              if (darkTryTimes == 0 || vTmp < value) value = vTmp;
-
-              darkTryTimes++;
-      }
-
-      // For PV nodes only, do a full PV search on the first move or after a fail
-      // high (in the latter case search only if value < beta), otherwise let the
-      // parent node fail low with value <= alpha and try another move.
-      if (PvNode && (moveCount == 1 || (value > alpha && (rootNode || value < beta))))
-      {
-          (ss+1)->pv = pv;
-          (ss+1)->pv[0] = MOVE_NONE;
-
-          vTmp = -search<PV>(pos, ss+1, -beta, -alpha,
-              isDarkDepth ? 0 : std::min(maxNextDepth, newDepth), false);
-          //get worse
-          if (darkTryTimes == 0 || vTmp < value) value = vTmp;
-          darkTryTimes++;
-      }
-      if (fromWhile) {
-          goto dark_while;
-      }
-dark_undo:
-      if (darkTryTimes == 0)value = vTmp;
       // Step 18. Undo move
       pos.undo_move(move);
 
@@ -1488,10 +1503,6 @@ dark_undo:
 #if SEARCHDEBUG
       if (debugPrint) {
           sync_cout << "move[" << __LINE__ << "]" << debugFen << " " << UCI::move(move) << " " << value << " " << pos.piece_on(to_sq(move)) << sync_endl;
-      }
-      if (darkPrint) {
-          if (!DarkSearchInfo.empty())
-              sync_cout << "dark[" << __LINE__ << "]d=" << depth<<"," << DarkSearchInfo << sync_endl;
       }
 #endif
 
@@ -1867,35 +1878,48 @@ dark_undo:
 
       quietCheckEvasions += !capture && ss->inCheck;
 
-      // Make and search the move
-      Value vTmp;
-      int tryTypeTimes = 0, typecount = 0;
-      ScoreCalc SC(Limits.depth, depth, pos.isFirstSide());
-      bool isDarkDepth;
-      std::string cfen;
+      // Make and search the move. A hidden piece move is expanded into all
+      // reveal outcomes (see the comments in search()).
       if (pos.do_move(move, st, givesCheck)) {
           StateInfo darkSt;
+          int typecount = 0, searched = 0;
+          bool isDarkDepth = false;
+          ScoreCalc SC(Limits.depth, depth, pos.isFirstSide());
           SC.setUs(pos.isFirstSide());
+          const int total = pos.rest_count(~pos.side_to_move());
+          Value pruneBound = VALUE_NONE;
+
           while (pos.getDark(darkSt, typecount, isDarkDepth))
           {
-              vTmp = -qsearch<nodeType>(pos, ss + 1, -beta, -alpha, isDarkDepth ? 0 : reveal_depth_reduction(type_of(pos.piece_on(to_sq(move))), depth - 1));
-              tryTypeTimes++;
-              SC.append(pos.piece_on(to_sq(move)), vTmp, typecount);
+              Value v = -qsearch<nodeType>(pos, ss + 1, -beta, -alpha, isDarkDepth ? 0 : reveal_depth_reduction(type_of(pos.piece_on(to_sq(move))), depth - 1));
+              SC.append(pos.piece_on(to_sq(move)), v, typecount);
               pos.setDark();
+              searched += typecount;
+
+              if (DarkParams::darkPrune && searched < total)
+              {
+                  Value ub = SC.bound(total - searched, true);
+                  if (ub <= alpha) { pruneBound = ub; break; }
+                  Value lb = SC.bound(total - searched, false);
+                  if (lb >= beta)  { pruneBound = lb; break; }
+              }
           }
-          if (tryTypeTimes == 0) {
-              pos.undo_move(move);
-              continue;
-          }
+
+          if (searched == 0)
+              // Reveal budget exhausted: keep the piece hidden (average value)
+              // rather than skipping the move, which could fake a mate when in check.
+              value = -qsearch<nodeType>(pos, ss + 1, -beta, -alpha, depth - 1);
           else
           {
               value = SC.CalcEvg();
+              if (pruneBound != VALUE_NONE)
+                  value = pruneBound <= alpha ? std::min(value, pruneBound)
+                                              : std::max(value, pruneBound);
           }
       }
       else
-      {
           value = -qsearch<nodeType>(pos, ss + 1, -beta, -alpha, depth - 1);
-      }
+
       pos.undo_move(move);
 
       assert(value > -VALUE_INFINITE && value < VALUE_INFINITE);
