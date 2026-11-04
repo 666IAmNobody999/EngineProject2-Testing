@@ -8,3 +8,8 @@ pikajieqi-native
 __pycache__/
 *.pyc
 .env
+
+# universal build
+src/universal/work-*/
+src/PikaJieQi-universal*
+src/pikajieqi-build*

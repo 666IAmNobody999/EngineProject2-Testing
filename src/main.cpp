@@ -24,7 +24,19 @@
 
 using namespace Stockfish;
 
+#ifdef UNIVERSAL_BINARY
+// Universal binary (ported from 幻神): every ISA slice is compiled with
+// -DStockfish=Stockfish_<arch>, so each slice has its own Stockfish_<arch>::main.
+// The global main() below is only used for the per-slice PGO run and is
+// localized (hidden) before the slices are linked with universal/entry_*.cpp.
+namespace Stockfish { int main(int argc, char* argv[]); }
+
+int main(int argc, char* argv[]) { return Stockfish::main(argc, argv); }
+
+int Stockfish::main(int argc, char* argv[]) {
+#else
 int main(int argc, char* argv[]) {
+#endif
 
   // Windows (ported from 幻神): a helper started by acquire_power_plan() only
   // waits for its engine to exit and then restores the previous power plan.

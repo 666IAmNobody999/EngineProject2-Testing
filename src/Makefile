@@ -49,8 +49,10 @@ PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
 ### Built-in benchmark for pgo-builds
+### RUN_PREFIX (e.g. "sde -future --" or "qemu-aarch64 -cpu max") runs the PGO
+### bench through an emulator when the build host cannot execute the target.
 ifeq ($(SDE_PATH),)
-	PGOBENCH = $(WINE_PATH) ./$(EXE) bench
+	PGOBENCH = $(RUN_PREFIX) $(WINE_PATH) ./$(EXE) bench
 else
 	PGOBENCH = $(SDE_PATH) -- $(WINE_PATH) ./$(EXE) bench
 endif
@@ -117,7 +119,7 @@ ifeq ($(ARCH), $(filter $(ARCH), \
                  x86-64-vnni512 x86-64-vnni256 x86-64-avx512 x86-64-avxvnni x86-64-bmi2 \
                  x86-64-avx2 x86-64-sse41-popcnt x86-64-modern x86-64-ssse3 x86-64-sse3-popcnt \
                  x86-64 x86-32-sse41-popcnt x86-32-sse2 x86-32 ppc-64 ppc-32 e2k \
-                 armv7 armv7-neon armv8 apple-silicon general-64 general-32 riscv64))
+                 armv7 armv7-neon armv8 armv8-dotprod apple-silicon general-64 general-32 riscv64))
    SUPPORTED_ARCH=true
 else
    SUPPORTED_ARCH=false
@@ -138,6 +140,7 @@ sse41 = no
 avx2 = no
 avxvnni = no
 avx512 = no
+dotprod = no
 vnni256 = no
 vnni512 = no
 neon = no
@@ -309,6 +312,15 @@ ifeq ($(ARCH),armv8)
 	arm_version = 8
 endif
 
+ifeq ($(ARCH),armv8-dotprod)
+	arch = armv8
+	prefetch = yes
+	popcnt = yes
+	neon = yes
+	dotprod = yes
+	arm_version = 8
+endif
+
 ifeq ($(ARCH),apple-silicon)
 	arch = arm64
 	prefetch = yes
@@ -468,10 +480,15 @@ endif
 
 # To cross-compile for Android, NDK version r21 or later is recommended.
 # In earlier NDK versions, you'll need to pass -fno-addrsig if using GNU binutils.
-# Currently we don't know how to make PGO builds with the NDK yet.
+# PGO with the NDK uses clang-profile-make/use (llvm-profdata from the NDK
+# toolchain); the bench must run on the target (device, qemu-aarch64 or sde).
 ifeq ($(COMP),ndk)
 	CXXFLAGS += -stdlib=libc++ -fPIE
 	comp=clang
+	ifeq ($(arch),x86_64)
+		CXX=x86_64-linux-android21-clang++
+		STRIP=llvm-strip
+	endif
 	ifeq ($(arch),armv7)
 		CXX=armv7a-linux-androideabi16-clang++
 		CXXFLAGS += -mthumb -march=armv7-a -mfloat-abi=softfp -mfpu=neon
@@ -676,6 +693,10 @@ ifeq ($(neon),yes)
 	endif
 endif
 
+ifeq ($(dotprod),yes)
+	CXXFLAGS += -march=armv8.2-a+dotprod -DUSE_NEON_DOTPROD
+endif
+
 ### 3.7 pext
 ifeq ($(pext),yes)
 	CXXFLAGS += -DUSE_PEXT
@@ -835,7 +856,7 @@ clean: objclean profileclean
 
 # clean binaries and objects
 objclean:
-	@rm -f pikafish pikafish.exe *.o ./compression/*.o ./nnue/*.o ./nnue/features/*.o
+	@rm -f pikafish pikafish.exe $(EXE) slice.o *.o ./compression/*.o ./nnue/*.o ./nnue/features/*.o
 
 # clean auxiliary profiling files
 profileclean:
@@ -880,6 +901,7 @@ config-sanity: net
 	@echo "vnni256: '$(vnni256)'"
 	@echo "vnni512: '$(vnni512)'"
 	@echo "neon: '$(neon)'"
+	@echo "dotprod: '$(dotprod)'"
 	@echo "arm_version: '$(arm_version)'"
 	@echo ""
 	@echo "Flags:"
@@ -914,6 +936,17 @@ config-sanity: net
 
 $(EXE): $(OBJS)
 	+$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+
+### Universal binary (ported from 幻神): partially link the (PGO/LTO) objects of
+### one ISA slice into a single relocatable object.  See universal/build.sh.
+ifeq ($(comp),clang)
+SLICE_LDFLAGS = $(CXXFLAGS) -nostdlib -r -fuse-ld=lld
+else
+SLICE_LDFLAGS = $(CXXFLAGS) -nostdlib -r -flinker-output=nolto-rel
+endif
+
+slice-object: $(OBJS)
+	+$(CXX) -o slice.o $(OBJS) $(SLICE_LDFLAGS)
 
 clang-profile-make:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \

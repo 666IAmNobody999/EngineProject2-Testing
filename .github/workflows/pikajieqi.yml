@@ -1,5 +1,10 @@
-# 幻神揭棋引擎 (PikaJieQi) release builds, ported from the 幻神引擎 workflow:
-# PGO (profile-guided) builds for Windows and Linux, one binary per CPU level.
+# 幻神揭棋引擎 (PikaJieQi) universal release builds, ported from the 幻神引擎 workflow.
+#
+# Each artifact is ONE binary that contains several PGO-optimised ISA slices and
+# picks the best one for the running CPU at start-up (src/universal/):
+#   Windows-x86-64-universal : x86-64, sse41-popcnt, avx2, bmi2 (avx2 on Zen1/2), avx512
+#   Android-x86-64-universal : same slices, NDK / bionic, static
+#   Android-arm64-universal  : armv8, armv8.2-a+dotprod, NDK / bionic, static
 name: PikaJieQi
 
 on:
@@ -7,53 +12,115 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: ${{ matrix.config.name }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.config.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86-64-bmi2, x86-64-avx2, x86-64-sse41-popcnt]
-        config:
-          - name: Windows
-            os: windows-latest
-            shell: msys2 {0}
-            comp: mingw
-            ext: .exe
-          - name: Linux
-            os: ubuntu-latest
-            shell: bash
-            comp: gcc
-            ext: ""
+  Windows-x86-64:
+    name: Windows-x86-64-universal
+    runs-on: windows-latest
     env:
       # Built under an ASCII name, released under the 幻神 name.
-      EXE: 幻神揭棋引擎-${{ matrix.config.name }}-${{ matrix.arch }}${{ matrix.config.ext }}
+      EXE: 幻神揭棋引擎-Windows-x86-64-universal.exe
     defaults:
       run:
         working-directory: src
-        shell: ${{ matrix.config.shell }}
+        shell: msys2 {0}
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup msys2
-        if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
           msystem: mingw64
-          install: mingw-w64-x86_64-gcc make git
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils make git tar
 
-      - name: Compile PGO build
+      # GitHub-hosted runners may lack AVX-512, so every slice's PGO bench runs
+      # under Intel SDE.
+      - name: Setup Intel SDE
+        uses: petarpetrovt/setup-sde@v6.0
+
+      - name: Compile universal PGO build
         run: |
-          BUILD=pikajieqi-build${{ matrix.config.ext }}
-          make -j4 profile-build ARCH=${{ matrix.arch }} COMP=${{ matrix.config.comp }} EXE=$BUILD
-          make strip EXE=$BUILD
-          cp "$BUILD" "../$EXE"
+          SDE="$(cygpath -u "$SDE_PATH")/sde.exe"
+          COMP=mingw PGO=yes JOBS=4 RUN_PREFIX="$SDE -future --" \
+            OUT=pikajieqi-build.exe universal/build.sh x86-64
+          strip pikajieqi-build.exe
+          cp pikajieqi-build.exe "../$EXE"
 
-      # Smoke test: the PGO bench of the final binary must run and print a node count.
+      - name: Bench (native CPU slice and baseline slice)
+        run: |
+          ./pikajieqi-build.exe bench 16 1 10 2>&1 | tail -n 3
+          PIKAJIEQI_SLICE=x86_64 ./pikajieqi-build.exe bench 16 1 10 2>&1 | tail -n 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.EXE }}
+          path: ${{ env.EXE }}
+
+  Android:
+    name: Android-${{ matrix.config.arch }}-universal
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          # The PGO bench of a (static) Android binary runs on the Linux runner:
+          # arm64 slices under QEMU user mode, x86-64 slices under Intel SDE.
+          - arch: arm64
+            target: arm64
+            runner: qemu
+          - arch: x86-64
+            target: x86-64
+            runner: sde
+    env:
+      EXE: 幻神揭棋引擎-Android-${{ matrix.config.arch }}-universal
+    defaults:
+      run:
+        working-directory: src
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install NDK
+        run: |
+          NDKV="28.2.13676358"
+          ANDROID_ROOT=/usr/local/lib/android
+          ANDROID_SDK_ROOT=$ANDROID_ROOT/sdk
+          SDKMANAGER=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager
+          echo "y" | $SDKMANAGER "ndk;$NDKV" > /dev/null
+          echo "$ANDROID_SDK_ROOT/ndk/$NDKV/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      - name: Install QEMU user mode
+        if: matrix.config.runner == 'qemu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user
+
+      - name: Setup Intel SDE
+        if: matrix.config.runner == 'sde'
+        uses: petarpetrovt/setup-sde@v6.0
+
+      - name: Compile universal PGO build
+        run: |
+          if [ "${{ matrix.config.runner }}" = "qemu" ]; then
+            PREFIX="qemu-aarch64 -cpu max"
+          else
+            PREFIX="$SDE_PATH/sde64 -future --"
+          fi
+          # Static: runs on any Android version and in QEMU/SDE for the PGO bench.
+          COMP=ndk PGO=yes JOBS=4 RUN_PREFIX="$PREFIX" \
+            LDFLAGS="-static -Wno-unused-command-line-argument" \
+            OUT=pikajieqi-build universal/build.sh ${{ matrix.config.target }}
+          llvm-strip pikajieqi-build
+          cp pikajieqi-build "../$EXE"
+
       - name: Bench
         run: |
-          ../"$EXE" bench 16 1 10 2>&1 | tail -n 3
+          if [ "${{ matrix.config.runner }}" = "qemu" ]; then
+            qemu-aarch64 -cpu cortex-a53 ./pikajieqi-build bench 16 1 8 2>&1 | tail -n 3
+            qemu-aarch64 -cpu max        ./pikajieqi-build bench 16 1 8 2>&1 | tail -n 3
+          else
+            ./pikajieqi-build bench 16 1 10 2>&1 | tail -n 3
+            PIKAJIEQI_SLICE=x86_64 ./pikajieqi-build bench 16 1 10 2>&1 | tail -n 3
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

@@ -50,7 +50,7 @@ namespace DarkParams {
 namespace Zobrist {
 
   Key psq[PIECE_NB][SQUARE_NB];
-  Key psqDark[PIECE_NB][5];
+  Key psqDark[PIECE_NB][7];
   Key side;
 }
 
@@ -276,6 +276,10 @@ void Position::set_check_info(StateInfo* si) const {
   si->checkSquares[ADVISOR] = attacks_bb<ADVISOR>(oksq, pieces());
   si->checkSquares[BISHOP] = attacks_bb<BISHOP>(oksq, pieces());
   si->checkSquares[KING] = 0;
+  // Pseudo types (dark advisor-slot pieces / knight-to) were left
+  // uninitialised and read by generate<QUIET_CHECKS> (found with valgrind).
+  si->checkSquares[KNIGHT_TO] = 0;
+  si->checkSquares[ADVISOR_B] = 0;
 }
 
 
@@ -598,6 +602,17 @@ bool Position::getDark(StateInfo& newSt, int& typecount, bool& isDarkDepth) {
     std::memcpy(&newSt, st, offsetof(StateInfo, key));
     newSt.previous = st->previous;
     newSt.previousDark = st;
+    // The reveal state replaces the state of the move that flipped the piece:
+    // keep that move's data. These fields used to be left uninitialised, so the
+    // chase/repetition rollback (set_chase_info -> light_undo_move(st->move,
+    // st->capturedPiece)) and priorCapture read stack garbage (found with
+    // valgrind; made searches non-deterministic).
+    newSt.move          = st->move;
+    newSt.capturedPiece = st->capturedPiece;
+    newSt.chased        = st->chased;
+    newSt.darkPiece     = NO_PIECE;
+    newSt.darkSquare    = SQ_NONE;
+    newSt.darkTypeIndex = NO_PIECE_TYPE;
     st = &newSt;
     //++gamePly;
     //++st->pliesFromNull;
@@ -789,7 +804,9 @@ bool Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
       st->darkSquare = to;
       st->darkTypeIndex = NO_PIECE_TYPE;
       st->darkDepth++;
-      st->darkTypes *= restPieces[us].notNullTypeCount();
+      // Saturate: the product only feeds the "> MaxDarkTypes" test and a long
+      // line of flips used to overflow int (UB, found with UBSan).
+      st->darkTypes = int(std::min<int64_t>(int64_t(st->darkTypes) * restPieces[us].notNullTypeCount(), 1 << 30));
   }
   else
   {
