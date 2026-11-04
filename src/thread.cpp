@@ -22,6 +22,7 @@
 #include "movegen.h"
 #include "search.h"
 #include "thread.h"
+#include "winperf.h"
 #include "uci.h"
 #include "tt.h"
 
@@ -114,6 +115,12 @@ void Thread::idle_loop() {
 
       lk.unlock();
 
+      // Windows (ported from 幻神): when the search threads fit on the physical
+      // cores, hard-bind each one to its own core so no two threads share a
+      // core through SMT. Done lazily on the worker thread itself.
+      if (cpuPin >= 0 && !pinned)
+          pinned = WinPerf::pin_current_thread(cpuPin) || true;
+
       search();
   }
 }
@@ -139,6 +146,12 @@ void ThreadPool::set(size_t requested) {
       while (size() < requested)
           push_back(new Thread(size()));
       clear();
+
+      // Windows: plan one physical core per search thread (empty elsewhere or
+      // when the threads do not fit on the physical cores).
+      std::vector<int> pins = WinPerf::plan_physical_core_pins(requested);
+      for (size_t i = 0; i < size(); ++i)
+          (*this)[i]->cpuPin = i < pins.size() ? pins[i] : -1;
 
       // Reallocate the hash with the new threadpool size
       TT.resize(size_t(Options["Hash"]));

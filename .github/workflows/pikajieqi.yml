@@ -1,0 +1,61 @@
+# 幻神揭棋引擎 (PikaJieQi) release builds, ported from the 幻神引擎 workflow:
+# PGO (profile-guided) builds for Windows and Linux, one binary per CPU level.
+name: PikaJieQi
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86-64-bmi2, x86-64-avx2, x86-64-sse41-popcnt]
+        config:
+          - name: Windows
+            os: windows-latest
+            shell: msys2 {0}
+            comp: mingw
+            ext: .exe
+          - name: Linux
+            os: ubuntu-latest
+            shell: bash
+            comp: gcc
+            ext: ""
+    env:
+      # Built under an ASCII name, released under the 幻神 name.
+      EXE: 幻神揭棋引擎-${{ matrix.config.name }}-${{ matrix.arch }}${{ matrix.config.ext }}
+    defaults:
+      run:
+        working-directory: src
+        shell: ${{ matrix.config.shell }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup msys2
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: mingw64
+          install: mingw-w64-x86_64-gcc make git
+
+      - name: Compile PGO build
+        run: |
+          BUILD=pikajieqi-build${{ matrix.config.ext }}
+          make -j4 profile-build ARCH=${{ matrix.arch }} COMP=${{ matrix.config.comp }} EXE=$BUILD
+          make strip EXE=$BUILD
+          cp "$BUILD" "../$EXE"
+
+      # Smoke test: the PGO bench of the final binary must run and print a node count.
+      - name: Bench
+        run: |
+          ../"$EXE" bench 16 1 10 2>&1 | tail -n 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.EXE }}
+          path: ${{ env.EXE }}

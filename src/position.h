@@ -35,9 +35,20 @@
 
 namespace Stockfish {
 
-#define MAXDARKDEPTH    4
-#define QDARKDEPTH      1
-#define MAXDARKTYPES    43
+// Runtime limits of the reveal (chance node) expansion. They used to be
+// compile-time constants (4 / 1 / 43); they are now ordinary variables so
+// they can be tuned via UCI (TUNE) without rebuilding.
+namespace DarkParams {
+  extern int maxDarkDepth;   // reveal plies searched at full depth
+  extern int qDarkDepth;     // extra reveal plies allowed inside qsearch
+  extern int maxDarkTypes;   // product of outcome counts before dropping to qsearch
+  extern int darkMode;       // 0: expand outcomes at depth 0 past the budget, 1: keep hidden
+  extern int darkIndependent;// 1: each reveal outcome decides its own re-search, 0: use running min
+  extern int darkPrune;      // 1: Star1-style pruning of the reveal loop
+}
+#define MAXDARKDEPTH    DarkParams::maxDarkDepth
+#define QDARKDEPTH      DarkParams::qDarkDepth
+#define MAXDARKTYPES    DarkParams::maxDarkTypes
 
 /// StateInfo struct stores information needed to restore a Position object to
 /// its previous state when we retract a move. Whenever a move is made on the
@@ -168,6 +179,8 @@ public:
 
   // Other properties of the position
   bool isFirstSide() const;
+  // Number of still-hidden pieces of color c (all possible reveal outcomes)
+  int rest_count(Color c) const { return int(restPieces[c].size()); }
   Color side_to_move() const;
   int game_ply() const;
   Thread* this_thread() const;

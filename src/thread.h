@@ -68,6 +68,9 @@ public:
   StateInfo rootState;
   Search::RootMoves rootMoves;
   Depth rootDepth, completedDepth, previousDepth;
+  bool seekMate = false;   // root score is decisive: search for the mate (ported from 幻神)
+  int  cpuPin = -1;        // Windows: logical CPU this thread is pinned to (-1: none)
+  bool pinned = false;
   Value rootDelta;
   CounterMoveHistory counterMoves;
   ButterflyHistory mainHistory;

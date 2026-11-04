@@ -20,12 +20,24 @@
 #include "search.h"
 #include "thread.h"
 #include "uci.h"
+#include "winperf.h"
 
 using namespace Stockfish;
 
 int main(int argc, char* argv[]) {
 
+  // Windows (ported from 幻神): a helper started by acquire_power_plan() only
+  // waits for its engine to exit and then restores the previous power plan.
+  if (WinPerf::run_power_watcher(argc, argv))
+      return 0;
+
   std::cout << engine_info() << std::endl;
+
+  // Windows: CPU/IO priority "High" for this process, idle other engines and
+  // switch to the high-performance power plan while the engine runs.
+  WinPerf::apply_process_tuning();
+  WinPerf::idle_other_pikafish();
+  WinPerf::acquire_power_plan();
 
   CommandLine::init(argc, argv);
   UCI::init(Options);
@@ -40,5 +52,6 @@ int main(int argc, char* argv[]) {
   UCI::loop(argc, argv);
 
   Threads.set(0);
+  WinPerf::release_power_plan();
   return 0;
 }

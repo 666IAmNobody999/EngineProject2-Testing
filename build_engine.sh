@@ -1,21 +1,16 @@
 #!/bin/bash
-# build_engine.sh — Build PikaJieQi Enhanced + download NNUE
+# build_engine.sh — Build 幻神揭棋引擎 (PikaJieQi) with PGO.
+# The engine uses the classical evaluation (USE_NNUEEVAL is 0), so no network
+# file is needed; the old pikafish.nnue download has been removed.
 set -ex
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Build engine
 cd "$SCRIPT_DIR/src"
-make -j$(nproc) ARCH=x86-64-sse41-popcnt build
+make -j$(nproc) ARCH=${ARCH:-x86-64-bmi2} ${COMP:+COMP=$COMP} profile-build
+make strip
 cp PikaJieQi "$SCRIPT_DIR/pikajieqi-native"
 chmod +x "$SCRIPT_DIR/pikajieqi-native"
 
-# Download NNUE from official Pikafish Networks repo
-if [ ! -f "$SCRIPT_DIR/pikafish.nnue" ]; then
-    echo "Downloading pikafish.nnue..."
-    curl -sL "https://github.com/official-pikafish/Networks/releases/download/master-net/pikafish.nnue" \
-        -o "$SCRIPT_DIR/pikafish.nnue"
-fi
-
-echo "✅ Engine built successfully"
-ls -la "$SCRIPT_DIR/pikajieqi-native" "$SCRIPT_DIR/pikafish.nnue"
+echo "Engine built successfully"
+ls -la "$SCRIPT_DIR/pikajieqi-native"
