@@ -73,7 +73,9 @@ for arch in $SLICES; do
   if [ "$PGO" = yes ]; then
     make -C "$d" -j"$JOBS" profile-build ARCH="$arch" COMP="$COMP" RUN_PREFIX="$RUN_PREFIX" >"$d.log" 2>&1 \
       || { tail -n 60 "$d.log"; exit 1; }
-    grep -E "Nodes searched|Nodes/second" "$d.log" || true
+    # The Makefile pipes the PGO bench through tail, so check it really ran.
+    grep -E "Nodes searched|Nodes/second" "$d.log" \
+      || { echo "PGO bench of slice $arch did not run:" >&2; grep -A3 "Step 2/4" "$d.log" >&2; exit 1; }
   else
     make -C "$d" -j"$JOBS" build ARCH="$arch" COMP="$COMP" >"$d.log" 2>&1 || { tail -n 60 "$d.log"; exit 1; }
   fi

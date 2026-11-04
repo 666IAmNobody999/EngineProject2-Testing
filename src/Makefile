@@ -51,8 +51,11 @@ BINDIR = $(PREFIX)/bin
 ### Built-in benchmark for pgo-builds
 ### RUN_PREFIX (e.g. "sde -future --" or "qemu-aarch64 -cpu max") runs the PGO
 ### bench through an emulator when the build host cannot execute the target.
-ifeq ($(SDE_PATH),)
+### (RUN_PREFIX wins over SDE_PATH, which setup-sde exports as a directory.)
+ifneq ($(RUN_PREFIX),)
 	PGOBENCH = $(RUN_PREFIX) $(WINE_PATH) ./$(EXE) bench
+else ifeq ($(SDE_PATH),)
+	PGOBENCH = $(WINE_PATH) ./$(EXE) bench
 else
 	PGOBENCH = $(SDE_PATH) -- $(WINE_PATH) ./$(EXE) bench
 endif
