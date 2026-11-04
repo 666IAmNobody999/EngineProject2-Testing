@@ -16,6 +16,7 @@ Architecture (same family as Stockfish SFNNv5 / Pikafish):
   output    (stack + forward + (psqt_us - psqt_them)/2) * 600 = engine units
 """
 
+import os
 import struct
 import numpy as np
 
@@ -47,10 +48,38 @@ RECORD_DTYPE = np.dtype([
 assert RECORD_DTYPE.itemsize == 264
 
 
+class _MultiFile:
+    """Several memory-mapped .bin files seen as one array, without copying
+    them into RAM (np.concatenate would need the whole data set in memory)."""
+
+    def __init__(self, arrs):
+        self.arrs = arrs
+        self.starts = np.cumsum([0] + [len(a) for a in arrs])
+
+    def __len__(self):
+        return int(self.starts[-1])
+
+    def __getitem__(self, idx):
+        if np.isscalar(idx):
+            f = int(np.searchsorted(self.starts, idx, side="right") - 1)
+            return self.arrs[f][idx - self.starts[f]]
+        idx = np.asarray(idx)
+        out = np.empty(len(idx), dtype=RECORD_DTYPE)
+        f = np.searchsorted(self.starts, idx, side="right") - 1
+        for i in np.unique(f):
+            m = f == i
+            out[m] = self.arrs[i][idx[m] - self.starts[i]]
+        return out
+
+
 def load_records(paths):
-    """Memory-map one or more .bin files from `gennnue`."""
-    arrs = [np.memmap(p, dtype=RECORD_DTYPE, mode="r") for p in paths]
-    return arrs[0] if len(arrs) == 1 else np.concatenate(arrs)
+    """Memory-map one or more .bin files from `gennnue` (data stays on disk)."""
+    arrs = [np.memmap(p, dtype=RECORD_DTYPE, mode="r") for p in paths
+            if os.path.getsize(p) >= RECORD_DTYPE.itemsize]
+    for p in paths:
+        if os.path.getsize(p) % RECORD_DTYPE.itemsize:
+            raise ValueError(f"{p}: size is not a multiple of {RECORD_DTYPE.itemsize} bytes")
+    return arrs[0] if len(arrs) == 1 else _MultiFile(arrs)
 
 
 def factor_map():
