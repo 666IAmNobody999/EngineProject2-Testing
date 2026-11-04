@@ -13,6 +13,7 @@ universal engine, so only Python + "pip install numpy torch" are needed.
 
 import json
 import os
+import re
 import queue
 import shutil
 import subprocess
@@ -85,31 +86,50 @@ def child_env():
 
 
 def probe_python(cmd):
-    """Return sys.executable of a working interpreter, or ''."""
+    """Return (sys.executable, has numpy+torch) of a working interpreter, or ('', False)."""
+    code = ("import sys; print(sys.executable)\n"
+            "try:\n import numpy, torch; print('OK')\nexcept Exception: print('NO')")
     try:
-        r = subprocess.run(cmd + ["-c", "import sys; print(sys.executable)"], capture_output=True,
-                           text=True, timeout=20, creationflags=CREATE_NO_WINDOW, env=child_env())
-        exe = r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else ""
-        return exe if exe and os.path.exists(exe) else ""
+        r = subprocess.run(cmd + ["-c", code], capture_output=True,
+                           text=True, timeout=60, creationflags=CREATE_NO_WINDOW, env=child_env())
+        lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
+        if len(lines) < 2 or not os.path.exists(lines[-2]):
+            return "", False
+        return lines[-2], lines[-1] == "OK"
     except Exception:
-        return ""
+        return "", False
 
 
 def find_python(preferred=""):
+    """Pick an interpreter, preferring one that already has numpy and torch."""
     cands = []
     if preferred:
         cands.append([preferred])
+    if not bundle_dir():
+        cands.append([sys.executable])
     if IS_WIN:
         cands += [["py", "-3"], ["python"], ["python3"]]
+        try:  # every interpreter the py launcher knows about
+            r = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=20,
+                               creationflags=CREATE_NO_WINDOW, env=child_env())
+            for line in r.stdout.splitlines():
+                m = re.search(r"([A-Za-z]:\\\S.*python\.exe)\s*$", line.strip(), re.I)
+                if m:
+                    cands.append([m.group(1)])
+        except Exception:
+            pass
     else:
         cands += [["python3"], ["python"]]
-    if not bundle_dir():
-        cands.insert(0, [sys.executable])
+    first, seen = "", set()
     for c in cands:
-        exe = probe_python(c)
-        if exe:
+        exe, ok = probe_python(c)
+        if not exe or exe.lower() in seen:
+            continue
+        seen.add(exe.lower())
+        if ok:
             return exe
-    return ""
+        first = first or exe
+    return first
 
 
 def count_positions(folder):
