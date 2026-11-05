@@ -65,6 +65,7 @@ struct StateInfo {
   int    pliesFromNull;
   int        darkDepth;
   int        darkTypes;
+  int        noCapture;   // plies since the last capture (AB-JChess net damping)
 
   // Not copied when making a move (will be recomputed anyhow)
   Key        key;
@@ -189,6 +190,7 @@ public:
   // Other properties of the position
   bool isFirstSide() const;
   // Number of still-hidden pieces of color c (all possible reveal outcomes)
+  int no_capture() const { return st->noCapture; }
   int rest_count(Color c) const { return int(restPieces[c].size()); }
   int bag_count(Color c, PieceType t) const { return restPieces[c].countType(t); }
   Color side_to_move() const;

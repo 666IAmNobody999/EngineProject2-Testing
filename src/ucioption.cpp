@@ -21,6 +21,7 @@
 #include <ostream>
 #include <sstream>
 
+#include "abjnet/abjnet.h"
 #include "evaluate.h"
 #include "misc.h"
 #include "search.h"
@@ -42,6 +43,8 @@ void on_hash_size(const Option& o) { TT.resize(size_t(o)); }
 void on_logger(const Option& o) { start_logger(o); }
 void on_threads(const Option& o) { Threads.set(size_t(o)); }
 void on_eval_file(const Option& ) { Eval::NNUE::init(); }
+void on_abj_net(const Option& ) { Eval::NNUE::init_abj(); }
+void on_abj_scale(const Option& o) { ABJNet::scale = int(o); }
 
 /// Our case insensitive less() function as required by UCI protocol
 bool CaseInsensitiveLess::operator() (const string& s1, const string& s2) const {
@@ -71,6 +74,9 @@ void init(OptionsMap& o) {
   o["UCI_ShowWDL"]           << Option(false);
   o["Use NNUE"]              << Option(false, on_eval_file);
   o["EvalFile"]              << Option(EvalFileDefaultName, on_eval_file);
+  o["ABJ NNUE"]              << Option(true, on_abj_net);
+  o["ABJEvalFile"]           << Option(ABJNet::DefaultName, on_abj_net);
+  o["ABJScale"]              << Option(1000, 100, 3000, on_abj_scale);
 }
 
 

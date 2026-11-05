@@ -26,6 +26,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # AB-JChess HNN net (abjchess-20261030.nnue renamed to pikafish.nnue),
+      # embedded in the binary. Kept in a private release like 幻神:
+      #   secret NET_TOKEN (token with read access to NET_REPO),
+      #   variables NET_REPO (owner/repo), NET_TAG (release tag),
+      #   optional NET_SHA256. Without them the build has no embedded net
+      #   (put pikafish.nnue next to the engine instead).
+      - name: Download embedded network
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NET_TOKEN }}
+          NET_REPO: ${{ vars.NET_REPO }}
+          NET_TAG: ${{ vars.NET_TAG }}
+          NET_SHA256: ${{ vars.NET_SHA256 }}
+        run: |
+          if [ -z "$GH_TOKEN" ] || [ -z "$NET_REPO" ] || [ -z "$NET_TAG" ]; then
+            echo "::warning::NET_TOKEN / NET_REPO / NET_TAG not set: building WITHOUT the embedded pikafish.nnue"
+            exit 0
+          fi
+          gh release download "$NET_TAG" --repo "$NET_REPO" --pattern pikafish.nnue --dir . --clobber
+          if [ -n "$NET_SHA256" ]; then
+            echo "$NET_SHA256  pikafish.nnue" | sha256sum -c -
+          fi
+          ls -l pikafish.nnue
+
       - name: Setup msys2
         uses: msys2/setup-msys2@v2
         with:
@@ -127,6 +151,30 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # AB-JChess HNN net (abjchess-20261030.nnue renamed to pikafish.nnue),
+      # embedded in the binary. Kept in a private release like 幻神:
+      #   secret NET_TOKEN (token with read access to NET_REPO),
+      #   variables NET_REPO (owner/repo), NET_TAG (release tag),
+      #   optional NET_SHA256. Without them the build has no embedded net
+      #   (put pikafish.nnue next to the engine instead).
+      - name: Download embedded network
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NET_TOKEN }}
+          NET_REPO: ${{ vars.NET_REPO }}
+          NET_TAG: ${{ vars.NET_TAG }}
+          NET_SHA256: ${{ vars.NET_SHA256 }}
+        run: |
+          if [ -z "$GH_TOKEN" ] || [ -z "$NET_REPO" ] || [ -z "$NET_TAG" ]; then
+            echo "::warning::NET_TOKEN / NET_REPO / NET_TAG not set: building WITHOUT the embedded pikafish.nnue"
+            exit 0
+          fi
+          gh release download "$NET_TAG" --repo "$NET_REPO" --pattern pikafish.nnue --dir . --clobber
+          if [ -n "$NET_SHA256" ]; then
+            echo "$NET_SHA256  pikafish.nnue" | sha256sum -c -
+          fi
+          ls -l pikafish.nnue
 
       - name: Install NDK
         run: |

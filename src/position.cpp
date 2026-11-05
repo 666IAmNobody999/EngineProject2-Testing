@@ -317,10 +317,11 @@ Position& Position::set(const string& fenStr, StateInfo* si, Thread* th) {
   //restPieces[WHITE].print();
   //restPieces[BLACK].print();
 
-  int dummy;
+  int dummy = 0;
 
   // 3-4. Halfmove clock and fullmove number
   ss >> std::skipws >> dummy >> gamePly;
+  st->noCapture = std::clamp(dummy, 0, 1000);
 
   // Convert from fullmove starting from 1 to gamePly starting from 0,
   // handle also common incorrect FEN with fullmove = 0.
@@ -812,6 +813,7 @@ bool Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
   // Increment ply counters.
   ++gamePly;
   ++st->pliesFromNull;
+  ++st->noCapture;
 
   // Used by NNUE
   st->accumulator.computed[WHITE] = false;
@@ -881,6 +883,8 @@ bool Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
 
   // Set capture piece
   st->capturedPiece = captured;
+  if (captured)
+      st->noCapture = 0;
 
   // Update the key with the final value
   st->key = k;
@@ -981,6 +985,7 @@ void Position::do_null_move(StateInfo& newSt) {
   prefetch(TT.first_entry(key()));
 
   st->pliesFromNull = 0;
+  ++st->noCapture;
 
   sideToMove = ~sideToMove;
 

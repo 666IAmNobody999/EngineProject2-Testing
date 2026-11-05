@@ -22,6 +22,7 @@
 #include <sstream>
 #include <string>
 
+#include "abjnet/abjnet.h"
 #include "evaluate.h"
 #include "movegen.h"
 #include "position.h"
@@ -96,6 +97,8 @@ namespace {
         {
             MoveStr.assign(token, 0, token.length() - 1);
             pGet = PieceExchange::charToPiece(token[4]);
+            pCaptured = NO_PIECE; // was left over from an earlier 6-char move: the
+                                  // bag then lost a piece (e.g. "b7b0rR a0b0N")
             assert(pGet <= B_KING);
         }
         else if (token.size() == 6)
@@ -354,6 +357,7 @@ void UCI::loop(int argc, char* argv[]) {
           sync_cout << pos << sync_endl;
       }
       else if (token == "eval")     trace_eval(pos);
+      else if (token == "abjeval")  sync_cout << "abjeval " << (ABJNet::loaded() ? ABJNet::raw_value(pos) : 0) << sync_endl;
       else if (token == "compiler") sync_cout << compiler_info() << sync_endl;
       else if (token == "export_net")
       {

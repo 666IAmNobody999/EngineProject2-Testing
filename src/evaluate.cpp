@@ -24,6 +24,7 @@
 #include <streambuf>
 #include <vector>
 
+#include "abjnet/abjnet.h"
 #include "bitboard.h"
 #include "evaluate.h"
 #include "misc.h"
@@ -68,8 +69,23 @@ namespace Eval {
     useNNUE = currentEvalFileName == eval_file;
   }
 
+  /// NNUE::init_abj() loads the AB-JChess HNN net (ABJEvalFile, default
+  /// pikafish.nnue, embedded in the binary when built with it). When loaded and
+  /// "ABJ NNUE" is on it takes precedence over the other evaluations.
+  void NNUE::init_abj() {
+
+    ABJNet::scale = int(Options["ABJScale"]);
+    ABJNet::enabled = bool(Options["ABJ NNUE"]) && ABJNet::init(string(Options["ABJEvalFile"]));
+  }
+
   /// NNUE::verify() reports, once per search, which evaluation is in use.
   void NNUE::verify() {
+
+    if (ABJNet::enabled && !useNNUE)
+    {
+        sync_cout << "info string NNUE evaluation using " << ABJNet::description() << " enabled" << sync_endl;
+        return;
+    }
 
     if (!bool(Options["Use NNUE"]))
         return;
@@ -491,12 +507,17 @@ Value Eval::evaluate(const Position& pos, int* complexity) {
   if (complexity)
       *complexity = 0;
 
+  // An explicitly enabled own net ("Use NNUE", e.g. by the NNUE trainer) comes
+  // first, then the AB-JChess net (default), then the classical evaluation.
   if (useNNUE)
   {
       Value v = NNUE::evaluate(pos);
       // Guarantee evaluation does not hit the mate range
       return std::clamp(v, VALUE_MATED_IN_MAX_PLY + 1, VALUE_MATE_IN_MAX_PLY - 1);
   }
+
+  if (ABJNet::enabled)
+      return ABJNet::evaluate(pos);
 
   return Evaluation<NO_TRACE>(pos).value();
 }

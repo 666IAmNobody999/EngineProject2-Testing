@@ -121,6 +121,14 @@ case "$COMP" in
   gcc)   FINAL_LD="-lpthread -lm" ;;
 esac
 $CXX -O2 -std=c++17 $EF ${ENTRY_DEFS[@]} -c "$SRC/universal/$ENTRY" -o "$WORK/entry.o"
+# mingw slices are taken from their LTO objects, which only reference the
+# embedded AB-JChess net (abjnet/embedded_net.S): add it once here. ELF slices
+# carry (and localize) their own copy.
+EMBED_OBJ=()
+if [ $windows = yes ] && [ -f "$SRC/pikafish.nnue" ]; then
+  (cd "$SRC" && $CXX -DNNUE_EMBEDDING -c abjnet/embedded_net.S -o "$WORK/embedded_net.o")
+  EMBED_OBJ=("$WORK/embedded_net.o")
+fi
 # Baseline slice first: identical weak/COMDAT (std::) definitions resolve to it.
-$CXX -o "$SRC/$OUT" "$WORK/entry.o" "${SLICE_OBJS[@]}" $FINAL_LD ${LDFLAGS_EXTRA:-}
+$CXX -o "$SRC/$OUT" "$WORK/entry.o" "${SLICE_OBJS[@]}" ${EMBED_OBJ[@]+"${EMBED_OBJ[@]}"} $FINAL_LD ${LDFLAGS_EXTRA:-}
 ls -l "$SRC/$OUT"

@@ -64,12 +64,12 @@ endif
 SRCS = benchmark.cpp bitboard.cpp evaluate.cpp main.cpp material.cpp \
 	misc.cpp movegen.cpp movepick.cpp position.cpp psqt.cpp \
 	search.cpp thread.cpp timeman.cpp tt.cpp uci.cpp ucioption.cpp tune.cpp winperf.cpp datagen.cpp \
-	nnue/evaluate_nnue.cpp nnue/features/half_ka_v2_hm.cpp \
+	nnue/evaluate_nnue.cpp nnue/features/half_ka_v2_hm.cpp abjnet/abjnet.cpp \
 	compression/zip.cpp
 
 OBJS = $(notdir $(SRCS:.cpp=.o))
 
-VPATH = compression:nnue:nnue/features
+VPATH = compression:nnue:nnue/features:abjnet
 
 ### ==========================================================================
 ### Section 2. High-level Configuration
@@ -865,7 +865,7 @@ clean: objclean profileclean
 
 # clean binaries and objects
 objclean:
-	@rm -f pikafish pikafish.exe $(EXE) slice.o *.o ./compression/*.o ./nnue/*.o ./nnue/features/*.o
+	@rm -f pikafish pikafish.exe $(EXE) slice.o *.o ./compression/*.o ./nnue/*.o ./nnue/features/*.o ./abjnet/*.o
 
 # clean auxiliary profiling files
 profileclean:
@@ -942,6 +942,21 @@ config-sanity: net
 	@test "$(neon)" = "yes" || test "$(neon)" = "no"
 	@test "$(comp)" = "gcc" || test "$(comp)" = "icc" || test "$(comp)" = "mingw" || test "$(comp)" = "clang" \
 	|| test "$(comp)" = "armv7a-linux-androideabi16-clang"  || test "$(comp)" = "aarch64-linux-android21-clang"
+
+### AB-JChess HNN net embedded in the binary (abjnet/embedded_net.S):
+### embed=yes by default when pikafish.nnue is present in src/.
+ifneq ($(wildcard pikafish.nnue),)
+embed ?= yes
+else
+embed ?= no
+endif
+ifeq ($(embed),yes)
+CXXFLAGS += -DNNUE_EMBEDDING
+OBJS += embedded_net.o
+endif
+
+embedded_net.o: abjnet/embedded_net.S pikafish.nnue
+	$(CXX) $(CXXFLAGS) -c abjnet/embedded_net.S -o $@
 
 $(EXE): $(OBJS)
 	+$(CXX) -o $@ $(OBJS) $(LDFLAGS)

@@ -50,6 +50,7 @@ namespace Eval {
     Value evaluate(const Position& pos, int* complexity = nullptr);
 
     void init();
+    void init_abj();
     void verify();
 
     bool load_eval(std::string name, std::istream& stream);
