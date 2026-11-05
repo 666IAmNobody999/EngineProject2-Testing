@@ -722,8 +722,9 @@ std::vector<int> plan_physical_core_pins(std::size_t threads) {
         int bit = 0;
         while (!((mask >> bit) & 1))
             ++bit;
-        cores.push_back({int(info->Processor.EfficiencyClass), int(ga.Group) * 64 + bit,
-                         ga.Group == 0 && (ga.Mask & 1)});
+        cores.push_back({int(reinterpret_cast<const BYTE*>(&info->Processor)[1]),  // EfficiencyClass (Flags, EfficiencyClass, ...): older mingw-w64 headers lack the field
+                         int(ga.Group) * 64 + bit,
+                         bool(ga.Group == 0 && (ga.Mask & 1))});
     }
 
     return select_physical_cores(std::move(cores), threads);
