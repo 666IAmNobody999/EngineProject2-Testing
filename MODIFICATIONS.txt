@@ -10,3 +10,5 @@ Changes made for 幻神揭棋引擎 (starting 2026-11-05), each marked "幻神�
 - engine name / author line (original authors credited);
 - Windows UTF-8 console;
 - GitHub Actions workflow .github/workflows/hsjieqi.yml.
+- tools/hs_match.py (A/B match arbiter with real clocks, --tc base+inc) and tools/hs_spsa.py +
+  tools/spsa_params.json (SPSA tuning of the hidden search parameters) (2026-11-06).

@@ -1,0 +1,138 @@
+[
+ {
+  "name": "RfpMargin",
+  "start": 90,
+  "min": 30,
+  "max": 300,
+  "c_end": 8,
+  "r_end": 0.002
+ },
+ {
+  "name": "FutBase",
+  "start": 100,
+  "min": 0,
+  "max": 400,
+  "c_end": 10,
+  "r_end": 0.002
+ },
+ {
+  "name": "FutMul",
+  "start": 120,
+  "min": 30,
+  "max": 400,
+  "c_end": 10,
+  "r_end": 0.002
+ },
+ {
+  "name": "LmrBase",
+  "start": 50,
+  "min": 0,
+  "max": 200,
+  "c_end": 6,
+  "r_end": 0.002
+ },
+ {
+  "name": "LmrDiv",
+  "start": 220,
+  "min": 100,
+  "max": 500,
+  "c_end": 12,
+  "r_end": 0.002
+ },
+ {
+  "name": "NullDiv",
+  "start": 200,
+  "min": 50,
+  "max": 800,
+  "c_end": 15,
+  "r_end": 0.002
+ },
+ {
+  "name": "AspDelta",
+  "start": 30,
+  "min": 5,
+  "max": 200,
+  "c_end": 3,
+  "r_end": 0.002
+ },
+ {
+  "name": "HistDiv",
+  "start": 8192,
+  "min": 1000,
+  "max": 32000,
+  "c_end": 500,
+  "r_end": 0.002
+ },
+ {
+  "name": "DeltaMargin",
+  "start": 200,
+  "min": 0,
+  "max": 1000,
+  "c_end": 15,
+  "r_end": 0.002
+ },
+ {
+  "name": "BadCapMargin",
+  "start": 50,
+  "min": -200,
+  "max": 400,
+  "c_end": 10,
+  "r_end": 0.002
+ },
+ {
+  "name": "SeeCap",
+  "start": 100,
+  "min": 0,
+  "max": 1000,
+  "c_end": 10,
+  "r_end": 0.002
+ },
+ {
+  "name": "SeeQuiet",
+  "start": 30,
+  "min": 0,
+  "max": 500,
+  "c_end": 4,
+  "r_end": 0.002
+ },
+ {
+  "name": "ChanceK",
+  "start": 430,
+  "min": 100,
+  "max": 1000,
+  "c_end": 20,
+  "r_end": 0.002
+ },
+ {
+  "name": "DarkLmr",
+  "start": 100,
+  "min": 0,
+  "max": 200,
+  "c_end": 8,
+  "r_end": 0.002
+ },
+ {
+  "name": "ThreatRevLmr",
+  "start": 100,
+  "min": 0,
+  "max": 200,
+  "c_end": 8,
+  "r_end": 0.002
+ },
+ {
+  "name": "TmSoft",
+  "start": 100,
+  "min": 10,
+  "max": 300,
+  "c_end": 8,
+  "r_end": 0.002
+ },
+ {
+  "name": "TmStab",
+  "start": 100,
+  "min": 0,
+  "max": 300,
+  "c_end": 10,
+  "r_end": 0.002
+ }
+]
