@@ -18,3 +18,4 @@ Changes made for 幻神揭棋引擎 (starting 2026-11-05), each marked "幻神�
   hidden parameter MovePick (0 = original selection sort, 1 = lazy insertion sort; default 0);
   UCI option "Search Algorithm" (Original / ImprovedMultiPV2, Improved MultiPV 2 ported from 幻神;
   default Original) with hidden AltMaxDepth / AltWindow / AltRecheck.
+- 2026-11-06: AVX2 first-maximum search in move picking (same order as the scalar selection sort).

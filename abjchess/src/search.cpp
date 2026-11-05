@@ -23,6 +23,9 @@
 #include "hnnue.h"
 #include "search.h"
 #include "winperf.h"
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
 
 #include "eval.h"
 #include "nnue.h"
@@ -389,6 +392,30 @@ inline void pick_move(Move* moves, int* scores, int n, int i) {
         return;
     }
     int bi = i;
+#if defined(__AVX2__)
+    // 幻神揭棋引擎: AVX2 search for the FIRST index holding the maximum score (8 scores per step). It returns
+    // exactly the index the scalar loop below finds, so the move order and the search are unchanged.
+    if (n - i >= 16) {
+        int j = i;
+        __m256i mx = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(scores + j));
+        for (j += 8; j + 8 <= n; j += 8)
+            mx = _mm256_max_epi32(mx, _mm256_loadu_si256(reinterpret_cast<const __m256i*>(scores + j)));
+        __m128i m4 = _mm_max_epi32(_mm256_castsi256_si128(mx), _mm256_extracti128_si256(mx, 1));
+        m4 = _mm_max_epi32(m4, _mm_shuffle_epi32(m4, _MM_SHUFFLE(1, 0, 3, 2)));
+        m4 = _mm_max_epi32(m4, _mm_shuffle_epi32(m4, _MM_SHUFFLE(2, 3, 0, 1)));
+        int best = _mm_cvtsi128_si32(m4);
+        for (int t = j; t < n; ++t) best = std::max(best, scores[t]);
+        const __m256i bv = _mm256_set1_epi32(best);
+        bi = -1;
+        for (j = i; j + 8 <= n; j += 8) {
+            const int mask = _mm256_movemask_ps(_mm256_castsi256_ps(
+                _mm256_cmpeq_epi32(_mm256_loadu_si256(reinterpret_cast<const __m256i*>(scores + j)), bv)));
+            if (mask) { bi = j + __builtin_ctz(unsigned(mask)); break; }
+        }
+        if (bi < 0)
+            for (bi = j; scores[bi] != best; ++bi) {}
+    } else
+#endif
     for (int j = i + 1; j < n; ++j)
         if (scores[j] > scores[bi]) bi = j;
     std::swap(moves[i], moves[bi]);
