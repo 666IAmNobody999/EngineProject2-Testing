@@ -73,6 +73,11 @@ struct Delta {
     int8_t nFull[2] = {0, 0};
     uint16_t full[2][64];          // refP[p]: all features of p after the move
     Meta m;
+    // 幻神揭棋引擎: lazy delta. When no perspective needs a refresh, make_delta only records the move;
+    // update() derives the feature indices (same values, same order), so pruned children cost nothing.
+    bool lazy = false;
+    int8_t lFrom = 0, lTo = 0, lRevSlot = -1, lUrnN = 0;
+    Piece lPc{}, lCap{}, lNp{};
 };
 
 // Threat features: on = 0 off (baseline behaviour), 1 on; init = 0 zero weights, 1 random int8 in [-amp, amp].

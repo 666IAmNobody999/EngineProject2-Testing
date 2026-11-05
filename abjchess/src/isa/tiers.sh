@@ -26,4 +26,4 @@ tier_flags() {  # $1 = tier -> compiler flags (GCC / Clang)
 }
 tier_id() { echo "$1" | tr -- '-' '_'; }
 # Engine source files (small-net release engine: the HNN small net is the only evaluator).
-ENGINE_FILES="tables position eval nnue_small hnnue search uci selfplay bitboard position_ref"; SMALL_FLAG=""
+ENGINE_FILES="tables position eval nnue_small hnnue search uci selfplay bitboard position_ref winperf"; SMALL_FLAG=""

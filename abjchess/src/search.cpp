@@ -22,6 +22,7 @@
 #include <atomic>
 #include "hnnue.h"
 #include "search.h"
+#include "winperf.h"
 
 #include "eval.h"
 #include "nnue.h"
@@ -52,6 +53,9 @@ namespace {
 
 // ---- tunables ----------------------------------------------------------------------------
 int P_ChanceK = 430;     // logistic scale used to average chance outcomes in expected-score space
+int P_AltLine = 0;   // 幻神揭棋引擎: Improved MultiPV 2 (UCI "Search Algorithm" ImprovedMultiPV2), 0 = off
+int P_AltMaxDepth = 20, P_AltWindow = 150, P_AltRecheck = 4;
+int P_MovePick = 0;  // 幻神揭棋引擎: 0 = selection sort per pick (AB-JChess), 1 = lazy insertion sort (see pick_move)
 int P_RfpMargin = 90;
 int P_RfpDepth = 7;
 int P_NullBase = 3;
@@ -364,6 +368,31 @@ int least_attacker(const Position& p, Bitboard occ, Color c, int s, int darkVal,
     }
 #endif
     return best;
+}
+
+// 幻神揭棋引擎: move picking. P_MovePick 0: selection sort at every pick (original). 1: the first pick is the
+// same selection (cut nodes usually stop there); from the second pick on, the remaining moves are sorted once by a
+// stable insertion sort (descending) and then taken in order. Ties and the order of equal-score moves can differ
+// from mode 0, so the search tree is not identical: an A/B match decides.
+inline void pick_move(Move* moves, int* scores, int n, int i) {
+    if (P_MovePick == 1 && !P_SmpDefer && i >= 1) {  // SmpDefer re-picks deferred moves: keep selection
+        if (i == 1) {
+            for (int a = 2; a < n; ++a) {
+                const int sc = scores[a];
+                const Move mv = moves[a];
+                int b = a - 1;
+                while (b >= 1 && scores[b] < sc) { scores[b + 1] = scores[b]; moves[b + 1] = moves[b]; --b; }
+                scores[b + 1] = sc;
+                moves[b + 1] = mv;
+            }
+        }
+        return;
+    }
+    int bi = i;
+    for (int j = i + 1; j < n; ++j)
+        if (scores[j] > scores[bi]) bi = j;
+    std::swap(moves[i], moves[bi]);
+    std::swap(scores[i], scores[bi]);
 }
 
 struct Worker {
@@ -1081,11 +1110,7 @@ Value Worker::qsearch(Value alpha, Value beta, int ply, int qply) {
     Position::LegalCtx lc;
     p.legal_ctx(lc);
     for (int i = 0; i < n; ++i) {
-        int bi = i;
-        for (int j = i + 1; j < n; ++j)
-            if (scores[j] > scores[bi]) bi = j;
-        std::swap(moves[i], moves[bi]);
-        std::swap(scores[i], scores[bi]);
+        pick_move(moves, scores, n, i);
         const Move m = moves[i];
 #ifdef JQ_MG_OLD
         if (!p.legal(m)) continue;
@@ -1306,11 +1331,7 @@ Value Worker::search(Value alpha, Value beta, int depth, int ply, bool pvNode, b
     Position::LegalCtx lc;
     p.legal_ctx(lc);
     for (int i = 0; i < n; ++i) {
-        int bi = i;
-        for (int j = i + 1; j < n; ++j)
-            if (scores[j] > scores[bi]) bi = j;
-        std::swap(moves[i], moves[bi]);
-        std::swap(scores[i], scores[bi]);
+        pick_move(moves, scores, n, i);
         const Move m = moves[i];
         if (m == excl || !p.legal(m, lc)) continue;
         if (g_chaseRule == CHASE_RULE_SKYRULE && p.skyrule_forbids_legal_move(m)) continue;
@@ -1482,6 +1503,12 @@ void Worker::iterate() {
         accOk[0] = nnue::NET_ALL;
     }
     Value prevScore = 0;
+    Value altScore = -VALUE_INFINITE;  // Improved MultiPV 2: last second-line score and the depth it was taken at
+    int altDepth = -100;
+    auto alt_root_moves = [&]() {
+        Move ml[MAX_MOVES];
+        return pos.gen_legal(ml);
+    };
     Move lastBest = MOVE_NONE;  // time management (main thread)
     double instab = 0;
     std::fill(std::begin(excluded), std::end(excluded), MOVE_NONE);
@@ -1542,6 +1569,37 @@ void Worker::iterate() {
         }
         if (id == 0) {
             report(d, v, BOUND_EXACT);
+            // 幻神揭棋引擎: Improved MultiPV 2 (ported from 幻神). The main thread also searches the second root line
+            // (best move excluded) with a full window at depth min(d, AltMaxDepth); beyond the cap it is re-run at
+            // the cap every AltRecheck iterations. It is skipped while the main line has a mate score or while the
+            // second line is known to be more than AltWindow behind (re-checked every AltRecheck plies). It is not
+            // printed and never changes the chosen move; it fills the TT / histories along the second line so a
+            // fail-low of the best move switches faster.
+            if (P_AltLine && bestMove != MOVE_NONE && G.rootMoves.empty() && std::abs(v) < VALUE_MATE_IN_MAX_PLY &&
+                alt_root_moves() > 1) {
+                const bool capped = d > P_AltMaxDepth;
+                const bool behind = altScore != -VALUE_INFINITE && altDepth > d - P_AltRecheck && v - altScore > P_AltWindow;
+                const bool due = !capped || (d - altDepth) >= P_AltRecheck;
+                if (!behind && due) {
+                    const Move savePv0 = pvLen[0] > 0 ? pv[0][0] : MOVE_NONE;
+                    (void)savePv0;
+                    const int saveLen = pvLen[0];
+                    Move savePv[MAX_PLY + 8];
+                    std::copy(pv[0], pv[0] + saveLen, savePv);
+                    const Move sIterBest = iterBest;
+                    const Value sIterScore = iterScore;
+                    const int sSel = selDepth;
+                    excluded[0] = bestMove;
+                    const Value av = search(-VALUE_INFINITE, VALUE_INFINITE, std::min(d, P_AltMaxDepth), 0, true, false);
+                    excluded[0] = MOVE_NONE;
+                    if (!G.stop) { altScore = av; altDepth = d; }
+                    std::copy(savePv, savePv + saveLen, pv[0]);
+                    pvLen[0] = saveLen;
+                    iterBest = sIterBest;
+                    iterScore = sIterScore;
+                    selDepth = sSel;
+                }
+            }
             instab = instab * 0.5 + (d > 1 && bestMove != lastBest ? 1.0 : 0.0);
             lastBest = bestMove;
             if (G.mateLimit && std::abs(v) >= VALUE_MATE_IN_MAX_PLY
@@ -1635,7 +1693,7 @@ std::vector<Param>& params() {
         {"ProbCut", &P_ProbCut, 0, 1000}, {"ProbCutDepth", &P_ProbCutDepth, 3, 12},
         {"QsSee", &P_QsSee, 0, 1}, {"QsSeeMargin", &P_QsSeeMargin, -500, 500}, {"SeeOrder", &P_SeeOrder, 0, 1},
         {"SeeCap", &P_SeeCap, 0, 1000}, {"SeeQuiet", &P_SeeQuiet, 0, 500}, {"SeePruneDepth", &P_SeePruneDepth, 1, 12},
-        {"SeeQuietOrder", &P_SeeQuietOrder, 0, 1000}, {"CorrHist", &P_CorrHist, 0, 400}, {"TTWays", &g_ttWays, 1, 4}, {"TTWaysMT", &g_ttWaysMT, 1, 4}, {"CapLmr", &P_CapLmr, 0, 3},
+        {"SeeQuietOrder", &P_SeeQuietOrder, 0, 1000}, {"CorrHist", &P_CorrHist, 0, 400}, {"TTWays", &g_ttWays, 1, 4}, {"TTWaysMT", &g_ttWaysMT, 1, 4}, {"CapLmr", &P_CapLmr, 0, 3}, {"MovePick", &P_MovePick, 0, 1}, {"AltLine", &P_AltLine, 0, 1}, {"AltMaxDepth", &P_AltMaxDepth, 1, 60}, {"AltWindow", &P_AltWindow, 0, 2000}, {"AltRecheck", &P_AltRecheck, 1, 20},
     };
     return p;
 }
@@ -1759,8 +1817,18 @@ SearchResult Searcher::go(const Position& root, const Limits& limits, const std:
             }
     }
 
+    // 幻神揭棋引擎 (ported from 幻神): on Windows, when the threads fit on the physical cores, pin
+    // each search thread to its own physical core (P-cores first). No-op elsewhere.
+    static std::vector<int> pins;
+    static std::size_t pinsFor = 0;
+    if (pinsFor != workers.size()) { pins = WinPerf::plan_physical_core_pins(workers.size()); pinsFor = workers.size(); }
     std::vector<Thread> helpers;
-    for (std::size_t i = 1; i < workers.size(); ++i) helpers.emplace_back([&workers, i] { workers[i]->iterate(); });
+    for (std::size_t i = 1; i < workers.size(); ++i)
+        helpers.emplace_back([&workers, i] {
+            if (i < pins.size()) WinPerf::pin_current_thread(pins[i]);
+            workers[i]->iterate();
+        });
+    if (!pins.empty()) WinPerf::pin_current_thread(pins[0]);
     workers[0]->iterate();
     G.stop = true;
     for (auto& t : helpers) t.join();

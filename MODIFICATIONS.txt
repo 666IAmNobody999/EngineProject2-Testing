@@ -12,3 +12,9 @@ Changes made for 幻神揭棋引擎 (starting 2026-11-05), each marked "幻神�
 - GitHub Actions workflow .github/workflows/hsjieqi.yml.
 - tools/hs_match.py (A/B match arbiter with real clocks, --tc base+inc) and tools/hs_spsa.py +
   tools/spsa_params.json (SPSA tuning of the hidden search parameters) (2026-11-06).
+- 2026-11-06: abjchess/src/winperf.{h,cpp} ported from 幻神 (Windows process priority, "幻神终极效能" power
+  plan with watcher, idle other Pikafish instances, physical-core pinning); hnnue make_delta: fewer
+  king_state calls and lazy feature indices (identical search, about 4% fewer instructions per node);
+  hidden parameter MovePick (0 = original selection sort, 1 = lazy insertion sort; default 0);
+  UCI option "Search Algorithm" (Original / ImprovedMultiPV2, Improved MultiPV 2 ported from 幻神;
+  default Original) with hidden AltMaxDepth / AltWindow / AltRecheck.

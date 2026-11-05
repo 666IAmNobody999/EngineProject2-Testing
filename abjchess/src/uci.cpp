@@ -22,6 +22,7 @@
 #include "eval.h"
 #include "nnue.h"
 #include "search.h"
+#include "winperf.h"
 
 #include <algorithm>
 #include <chrono>
@@ -263,6 +264,7 @@ struct Engine {
         out(std::string("option name EvalFile type string default ") + (nnue::has_embedded() ? EMBEDDED : ABJ_NET_FILE));
         out("option name Clear Hash type button");
         out("option name ChaseRule type combo default skyrule var none var default var skyrule");
+        out("option name Search Algorithm type combo default Original var Original var ImprovedMultiPV2");
         out("uciok");
     }
 
@@ -289,6 +291,12 @@ struct Engine {
             if (option == "hash") searcher.resize_hash(std::size_t(std::clamp(std::stoi(value), 1, 16384)));
             else if (option == "threads") searcher.set_threads(std::clamp(std::stoi(value), 1, 256));
             else if (option == "clear hash") searcher.clear();
+            else if (option == "search algorithm") {  // 幻神揭棋引擎: Improved MultiPV 2 (param AltLine)
+                const std::string a = lower_ascii(value);
+                for (Param& p : params())
+                    if (std::string(p.name) == "AltLine") *p.value = a == "improvedmultipv2" ? 1 : 0;
+                searcher.clear();
+            }
             else if (option == "chasingrule" || option == "chaserule") {
                 const std::string rule = lower_ascii(value);
                 if (rule == "0" || rule == "none") g_chaseRule = CHASE_RULE_NONE;
@@ -392,6 +400,7 @@ struct Engine {
     }
 
     void cmd_go(std::istringstream& is) {
+        WinPerf::apply_process_tuning();  // 幻神揭棋引擎: GUIs may lower the priority after launch
         Limits lim;
         std::string tok;
         int perftDepth = 0;
@@ -505,7 +514,7 @@ int uci_loop(int argc, char** argv) {
         else if (cmd == "isready") engine.cmd_isready();
         else if (cmd == "ponderhit") engine.searcher.ponderhit();
         else if (cmd == "debug" || cmd == "register") { }
-        else if (cmd == "ucinewgame") { engine.wait(); engine.searcher.clear(); }
+        else if (cmd == "ucinewgame") { engine.wait(); WinPerf::idle_other_pikafish(); engine.searcher.clear(); }
         else if (cmd == "setoption") engine.cmd_setoption(is);
         else if (cmd == "position") { engine.wait(); engine.cmd_position(is); }
         else if (cmd == "go") engine.cmd_go(is);

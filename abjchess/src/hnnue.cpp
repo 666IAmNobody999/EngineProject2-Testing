@@ -356,12 +356,29 @@ void make_delta(const Position& pos, Move mv, Delta& d) {
     m.pieces = int8_t(pos.pcount[0] + pos.pcount[1] - (cap ? 1 : 0));
     m.dark = int8_t(pos.darkCount[0] + pos.darkCount[1] - (type_of(pc) == DARK) - (cap && type_of(cap) == DARK));
     d.valid = true;
+    // 幻神揭棋引擎: king_state twice only for the mover's own king move (it was 4 calls for every move).
+    for (int p = 0; p < 2; ++p) {
+        king_state(Color(p), pos.kingSq[p], m.kb[p], m.mirror[p]);
+        d.refP[p] = false;
+        if (type_of(pc) == KING && us == Color(p)) {
+            const int8_t kb0 = m.kb[p], mir0 = m.mirror[p];
+            king_state(Color(p), to, m.kb[p], m.mirror[p]);
+            d.refP[p] = kb0 != m.kb[p] || mir0 != m.mirror[p];
+        }
+    }
+#if !(defined(JQ_PF_FT) && JQ_PF_FT > 0)
+    if (!d.refP[0] && !d.refP[1]) {  // lazy: feature indices are derived in update()
+        d.lazy = true;
+        d.lFrom = int8_t(from); d.lTo = int8_t(to);
+        d.lPc = pc; d.lCap = cap; d.lNp = np;
+        d.lRevSlot = int8_t(revSlot);
+        d.lUrnN = revSlot >= 0 ? int8_t(pos.urn[us][revSlot]) : 0;
+        return;
+    }
+#endif
+    d.lazy = false;
     for (int p = 0; p < 2; ++p) {
         const Color persp = Color(p);
-        king_state(persp, type_of(pc) == KING && us == persp ? to : pos.kingSq[p], m.kb[p], m.mirror[p]);
-        int8_t kb0, mir0;
-        king_state(persp, pos.kingSq[p], kb0, mir0);
-        d.refP[p] = kb0 != m.kb[p] || mir0 != m.mirror[p];
         if (d.refP[p]) {  // only a king move: no capture of a face-down piece, no reveal
             uint16_t* f = d.full[p];
             int n = 0;
@@ -407,6 +424,23 @@ void update(const Acc& prev, Acc& next, const Delta& d) {
         std::memcpy(next.ps, prev.ps, sizeof prev.ps);
         next.m = prev.m;
         ++next.m.noCapture;
+        return;
+    }
+    if (d.lazy) {
+        const Color us = color_of(d.lPc);
+        for (int p = 0; p < 2; ++p) {
+            const Color persp = Color(p);
+            const int kb = d.m.kb[p], mir = d.m.mirror[p];
+            uint16_t rem[3], add[1];
+            int nr = 0;
+            rem[nr++] = uint16_t(piece_feat(persp, d.lPc, d.lFrom, kb, mir));
+            if (d.lCap) rem[nr++] = uint16_t(piece_feat(persp, d.lCap, d.lTo, kb, mir));
+            if (d.lRevSlot >= 0) rem[nr++] = uint16_t(urn_feat(persp, us, d.lRevSlot, d.lUrnN));
+            add[0] = uint16_t(piece_feat(persp, d.lNp, d.lTo, kb, mir));
+            apply(next.v[p], next.ps[p], prev.v[p], prev.ps[p], add, 1, rem, nr);
+        }
+        next.m = d.m;
+        next.m.material = int16_t(prev.m.material + d.m.material);
         return;
     }
     for (int p = 0; p < 2; ++p) {

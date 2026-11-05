@@ -20,6 +20,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include <iostream>
+#include "winperf.h"
 #if defined(_WIN32)
 // 幻神揭棋引擎: UTF-8 console so the Chinese engine name / paths are not garbled (declared here instead of <windows.h>)
 extern "C" __declspec(dllimport) int __stdcall SetConsoleOutputCP(unsigned int);
@@ -31,10 +32,20 @@ int uci_loop(int argc, char** argv);
 }
 
 int main(int argc, char** argv) {
+    // 幻神揭棋引擎 (ported from 幻神): a helper started by acquire_power_plan() only waits for
+    // its engine to exit and then restores the previous power plan.
+    if (jq::WinPerf::run_power_watcher(argc, argv)) return 0;
 #if defined(_WIN32)
     SetConsoleOutputCP(65001u);
     SetConsoleCP(65001u);
 #endif
     std::ios::sync_with_stdio(false);
-    return jq::uci_loop(argc, argv);
+    // Windows only (no-ops elsewhere): high CPU / I/O priority, other Pikafish instances to Idle,
+    // the "幻神终极效能" power plan while the engine runs.
+    jq::WinPerf::apply_process_tuning();
+    jq::WinPerf::idle_other_pikafish();
+    jq::WinPerf::acquire_power_plan();
+    const int rc = jq::uci_loop(argc, argv);
+    jq::WinPerf::release_power_plan();
+    return rc;
 }
