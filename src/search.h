@@ -109,6 +109,13 @@ extern LimitsType Limits;
 // When set (training-data generation), the search prints no info / bestmove.
 extern bool Silent;
 
+// Improved MultiPV 2 (option "Search Algorithm", ported from 幻神)
+namespace Improved {
+constexpr Depth AltMaxDepth     = 20;  // depth cap of the second line
+constexpr int   AltWindowCp     = 150; // second line skipped when this far behind (cp)
+constexpr Depth AltRecheckEvery = 4;   // ... but re-checked at least every N plies
+}
+
 void init();
 void clear();
 

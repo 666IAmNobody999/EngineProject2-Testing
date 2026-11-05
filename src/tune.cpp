@@ -68,13 +68,17 @@ static void make_option(const string& n, int v, const SetRange& r) {
   Options[n] << UCI::Option(v, r(v).first, r(v).second, on_tune);
   LastOption = &Options[n];
 
-  // Print formatted parameters, ready to be copy-pasted in Fishtest
+  // Print formatted parameters, ready to be copy-pasted in Fishtest. Only in
+  // tuning builds (make ... EXTRACXXFLAGS=-DTUNE_PRINT): the TUNE() options of
+  // this engine are normal UCI options and the lines only confused users.
+#ifdef TUNE_PRINT
   std::cout << n << ","
             << v << ","
             << r(v).first << "," << r(v).second << ","
             << (r(v).second - r(v).first) / 20.0 << ","
             << "0.0020"
             << std::endl;
+#endif
 }
 
 template<> void Tune::Entry<int>::init_option() { make_option(name, value, range); }

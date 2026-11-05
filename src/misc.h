@@ -36,6 +36,7 @@ std::string engine_info(bool to_uci = false);
 std::string compiler_info();
 void prefetch(void* addr);
 void start_logger(const std::string& fname);
+void set_console_utf8();
 void* std_aligned_alloc(size_t alignment, size_t size);
 void std_aligned_free(void* ptr);
 void* aligned_large_pages_alloc(size_t size); // memory aligned by page size, min alignment: 4096 bytes

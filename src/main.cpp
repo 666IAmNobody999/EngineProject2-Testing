@@ -16,6 +16,7 @@
 #include <iostream>
 
 #include "bitboard.h"
+#include "misc.h"
 #include "position.h"
 #include "search.h"
 #include "thread.h"
@@ -42,6 +43,9 @@ int main(int argc, char* argv[]) {
   // waits for its engine to exit and then restores the previous power plan.
   if (WinPerf::run_power_watcher(argc, argv))
       return 0;
+
+  // Switch the Windows console to UTF-8 before the first output (ported from 幻神)
+  set_console_utf8();
 
   std::cout << engine_info() << std::endl;
 

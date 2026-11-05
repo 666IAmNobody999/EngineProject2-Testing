@@ -413,6 +413,22 @@ void Thread::search() {
 
   multiPV = std::min(multiPV, rootMoves.size());
 
+  // Improved MultiPV 2 (ported from 幻神): with MultiPV 1 the main thread also
+  // searches a second root line as in MultiPV 2, with its depth capped at
+  // Improved::AltMaxDepth. Up to the cap the second best move gets a full
+  // window instead of a null window; beyond the cap only the second line's own
+  // move is re-verified at the capped depth. The second line is not printed and
+  // is skipped while it is known to be far behind the main line or the main
+  // line already has a mate. Helper threads and data generation are unchanged.
+  const bool altLine =   Options["Search Algorithm"] == "ImprovedMultiPV2"
+                      && multiPV == 1
+                      && rootMoves.size() > 1
+                      && mainThread
+                      && !Silent;
+  Value altScore = -VALUE_INFINITE;
+  Depth altScoreDepth = 0;
+  const size_t lines = altLine ? 2 : multiPV;
+
   complexityAverage.set(comp_1, 1);
 
   optimism[us] = optimism[~us] = VALUE_ZERO;
@@ -439,9 +455,27 @@ void Thread::search() {
       if (!Threads.increaseDepth)
          searchAgainCounter++;
 
+      Value mainBestValue = bestValue;
+      bool  mainLineDone  = false;
+
       // MultiPV loop. We perform a full root search for each PV line
-      for (pvIdx = 0; pvIdx < multiPV && !Threads.stop; ++pvIdx)
+      for (pvIdx = 0; pvIdx < lines && !Threads.stop; ++pvIdx)
       {
+          if (altLine && pvIdx)
+          {
+              // Beyond the cap only the second line's own move is re-verified
+              pvLast = rootDepth > Improved::AltMaxDepth ? pvIdx + 1 : rootMoves.size();
+
+              // Skip the second line while the main line has a mate, or while the
+              // second line is known to be far behind (re-checked every few plies)
+              const int mainCp = rootMoves[0].score * 100 / PawnValueEg;
+              if (   rootMoves[0].score >= VALUE_MATE_IN_MAX_PLY
+                  || (   altScore != -VALUE_INFINITE
+                      && altScoreDepth > rootDepth - Improved::AltRecheckEvery
+                      && mainCp - altScore * 100 / PawnValueEg > Improved::AltWindowCp))
+                  continue;
+          }
+
           // Reset UCI info selDepth for each depth and each PV line
           selDepth = 0;
 
@@ -477,6 +511,9 @@ void Thread::search() {
               // Adjust the effective depth searched, but ensuring at least one effective increment for every
               // four searchAgain steps (see issue #2717).
               Depth adjustedDepth = std::max(1, rootDepth - failedHighCnt - 3 * (searchAgainCounter + 1) / 4);
+              // The second line of Improved MultiPV 2 never goes beyond the cap
+              if (altLine && pvIdx)
+                  adjustedDepth = std::min(adjustedDepth, Improved::AltMaxDepth);
               bestValue = Stockfish::search<Root>(rootPos, ss, alpha, beta, adjustedDepth, false);
 
               // Bring the best move to the front. It is critical that sorting
@@ -496,7 +533,7 @@ void Thread::search() {
               // When failing high/low give some update (without cluttering
               // the UI) before a re-search.
               if (   mainThread
-                  && multiPV == 1
+                  && lines == 1
                   && (bestValue <= alpha || bestValue >= beta)
                   && Time.elapsed() > 3000
                   && !Silent)
@@ -526,8 +563,28 @@ void Thread::search() {
               assert(alpha >= -VALUE_INFINITE && beta <= VALUE_INFINITE);
           }
 
+          if (altLine && pvIdx)
+          {
+              // A depth-capped or aborted second line must not overtake the main
+              // line: promotion is left to the next iteration's main line search.
+              if (rootDepth <= Improved::AltMaxDepth && !Threads.stop)
+                  std::stable_sort(rootMoves.begin() + pvFirst, rootMoves.begin() + pvIdx + 1);
+              if (!Threads.stop)
+              {
+                  altScore = rootMoves[pvIdx].score;
+                  altScoreDepth = rootDepth;
+              }
+              continue; // the second line is not printed
+          }
+
           // Sort the PV lines searched so far and update the GUI
           std::stable_sort(rootMoves.begin() + pvFirst, rootMoves.begin() + pvIdx + 1);
+
+          if (altLine && !Threads.stop)
+          {
+              mainBestValue = bestValue;
+              mainLineDone = true;
+          }
 
           if (    mainThread
               && !Silent
@@ -535,7 +592,11 @@ void Thread::search() {
               sync_cout << UCI::pv(rootPos, rootDepth, alpha, beta) << sync_endl;
       }
 
-      if (!Threads.stop)
+      // Time management and the mate check below look at the main line only
+      if (altLine && mainLineDone)
+          bestValue = mainBestValue;
+
+      if (!Threads.stop || mainLineDone)
           completedDepth = rootDepth;
 
       if (rootMoves[0].pv[0] != lastBestMove) {

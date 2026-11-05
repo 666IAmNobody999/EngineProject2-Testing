@@ -327,6 +327,17 @@ std::ostream& operator<<(std::ostream& os, SyncCout sc) {
 void start_logger(const std::string& fname) { Logger::start(fname); }
 
 
+/// set_console_utf8() switches the Windows console to UTF-8 (ported from 幻神),
+/// so the Chinese banner and "id name" are readable when the exe is opened
+/// directly. GUIs reading the pipe are not affected.
+void set_console_utf8() {
+#ifdef _WIN32
+  SetConsoleCP(CP_UTF8);
+  SetConsoleOutputCP(CP_UTF8);
+#endif
+}
+
+
 /// prefetch() preloads the given address in L1/L2 cache. This is a non-blocking
 /// function that doesn't stall the CPU waiting for data to be loaded from memory,
 /// which can be quite slow.
