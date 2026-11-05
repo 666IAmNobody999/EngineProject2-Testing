@@ -20,12 +20,21 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include <iostream>
+#if defined(_WIN32)
+// 幻神揭棋引擎: UTF-8 console so the Chinese engine name / paths are not garbled (declared here instead of <windows.h>)
+extern "C" __declspec(dllimport) int __stdcall SetConsoleOutputCP(unsigned int);
+extern "C" __declspec(dllimport) int __stdcall SetConsoleCP(unsigned int);
+#endif
 
 namespace jq {
 int uci_loop(int argc, char** argv);
 }
 
 int main(int argc, char** argv) {
+#if defined(_WIN32)
+    SetConsoleOutputCP(65001u);
+    SetConsoleCP(65001u);
+#endif
     std::ios::sync_with_stdio(false);
     return jq::uci_loop(argc, argv);
 }

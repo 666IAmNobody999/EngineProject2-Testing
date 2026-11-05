@@ -1,0 +1,77 @@
+# 幻神揭棋引擎 (abj-base): universal builds of the AB-JChess-based engine.
+# Based on AB-JChess (https://github.com/lxsgx23/AB-JChess, GPLv3) and jqe (Devin O'Keefe, MIT).
+name: HSJieQi abj-base
+
+on:
+  push:
+    branches: [abj-base]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows-x86-64-universal, plat: windows,        out: abjchess-windows-x86-64.exe, art: Huan-Shen-Jie-Qi-ABJ-Windows-x86-64-universal.exe }
+          - { name: Linux-x86-64-universal,   plat: linux,          out: abjchess-linux-x86-64,       art: Huan-Shen-Jie-Qi-ABJ-Linux-x86-64-universal }
+          - { name: Android-arm64-v8a,        plat: android-arm64,  out: abjchess-android-arm64-v8a,  art: Huan-Shen-Jie-Qi-ABJ-Android-arm64-v8a }
+          - { name: Android-x86-64,           plat: android-x86_64, out: abjchess-android-x86_64,     art: Huan-Shen-Jie-Qi-ABJ-Android-x86-64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        shell: bash
+        run: |
+          if [ "${{ matrix.plat }}" = windows ]; then
+            sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64-posix
+          fi
+
+      - name: Set up Android NDK
+        if: startsWith(matrix.plat, 'android')
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+          add-to-path: false
+
+      - name: Download embedded network
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NET_TOKEN }}
+          NET_REPO: ${{ vars.NET_REPO }}
+          NET_TAG: ${{ vars.NET_TAG }}
+          NET_SHA256: ${{ vars.NET_SHA256 }}
+        run: |
+          if [ -z "$GH_TOKEN" ] || [ -z "$NET_REPO" ] || [ -z "$NET_TAG" ]; then
+            echo "::warning::NET_TOKEN / NET_REPO / NET_TAG not set: building WITHOUT the embedded pikafish.nnue (engine then needs pikafish.nnue or abjchess-20261030.nnue next to it)"
+            exit 0
+          fi
+          gh release download "$NET_TAG" --repo "$NET_REPO" --pattern pikafish.nnue --dir "$RUNNER_TEMP" --clobber
+          if [ -n "$NET_SHA256" ]; then
+            echo "$NET_SHA256  $RUNNER_TEMP/pikafish.nnue" | sha256sum -c -
+          fi
+          echo "NET_EMBED=$RUNNER_TEMP/pikafish.nnue" >> "$GITHUB_ENV"
+
+      - name: Build
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          cd abjchess/src
+          JOBS=4 isa/build_universal.sh ${{ matrix.plat }} "$RUNNER_TEMP/out"
+          cp "$RUNNER_TEMP/out/${{ matrix.out }}" "$GITHUB_WORKSPACE/${{ matrix.art }}"
+
+      - name: Smoke test
+        if: matrix.plat == 'linux'
+        shell: bash
+        run: |
+          ./${{ matrix.art }} --print-tier || true
+          if [ -n "$NET_EMBED" ]; then ./${{ matrix.art }} bench 2>&1 | tail -3; else echo "(no embedded net: bench skipped)"; fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.art }}
+          path: ${{ matrix.art }}

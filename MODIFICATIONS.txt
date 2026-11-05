@@ -1,0 +1,12 @@
+This branch (abj-base) is a modified version of AB-JChess
+(https://github.com/lxsgx23/AB-JChess, commit e5249e81e810d9bdb5108589ddb5c12e7bd2e845),
+licensed under the GNU GPL v3 (see LICENSE). AB-JChess contains code derived from jqe by
+Devin O'Keefe (MIT, see abjchess/LICENSE-jqe-MIT.txt) and Pikafish/Stockfish (GPLv3);
+see THIRD_PARTY_NOTICES.md and abjchess/AUTHORS.
+
+Changes made for 幻神揭棋引擎 (starting 2026-11-05), each marked "幻神揭棋引擎" in the source:
+- optional embedded default net (abjchess/src/embedded_net.S, NET_EMBED build variable);
+- default net order: embedded -> pikafish.nnue -> abjchess-20261030.nnue;
+- engine name / author line (original authors credited);
+- Windows UTF-8 console;
+- GitHub Actions workflow .github/workflows/hsjieqi.yml.

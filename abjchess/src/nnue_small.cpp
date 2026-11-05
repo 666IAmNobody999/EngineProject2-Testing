@@ -72,10 +72,40 @@ bool load(const std::string& path, std::string* error) {
     g_loaded = true;
     return true;
 }
+#if defined(ABJ_EMBED_NET)
+// 幻神揭棋引擎: the default net (pikafish.nnue) linked into the binary by embedded_net.S (.incbin).
+extern "C" const unsigned char hs_embedded_net[];
+extern "C" const unsigned char hs_embedded_net_end[];
+bool has_embedded() { return embedded_size() > 0; }
+std::size_t embedded_size() { return std::size_t(hs_embedded_net_end - hs_embedded_net); }
+bool export_embedded(const std::string& path, std::string* error) {
+    std::vector<uint8_t> raw;
+    if (jqnz::is_compressed(hs_embedded_net, embedded_size())) {
+        if (!jqnz::decode(hs_embedded_net, embedded_size(), raw, error)) return false;
+    } else raw.assign(hs_embedded_net, hs_embedded_net + embedded_size());
+    FILE* o = std::fopen(path.c_str(), "wb");
+    if (!o) return fail(error, "cannot write " + path);
+    const bool ok = std::fwrite(raw.data(), 1, raw.size(), o) == raw.size();
+    std::fclose(o);
+    return ok ? true : fail(error, "write error " + path);
+}
+bool load_embedded(std::string* error) {
+    if (!has_embedded()) return fail(error, "no embedded net in this build");
+    if (!hnn::load_buffer(hs_embedded_net, embedded_size(), error)) { g_loaded = false; return false; }
+    if (hnn::width() > SMALL_MAX_W) {
+        hnn::unload();
+        g_loaded = false;
+        return fail(error, "embedded net is not a small net");
+    }
+    g_loaded = true;
+    return true;
+}
+#else
 bool has_embedded() { return false; }
 std::size_t embedded_size() { return 0; }
 bool export_embedded(const std::string&, std::string* error) { return fail(error, "no embedded net in this build"); }
 bool load_embedded(std::string* error) { return fail(error, "no embedded net in this build"); }
+#endif
 
 bool decode_net_file(const std::string& in, const std::string& outPath, std::string* error) {
     FILE* f = std::fopen(in.c_str(), "rb");

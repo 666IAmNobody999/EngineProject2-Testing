@@ -48,8 +48,14 @@ extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(unsigned int,
 #include <climits>
 #endif
 // Default evaluation net: a separate (losslessly compressed) file next to the engine, no net inside the binary.
+#ifndef HS_ENGINE_NAME
+#define HS_ENGINE_NAME "幻神揭棋引擎 20261105"
+#endif
+#ifndef ABJ_NET_FILE_ALT
+#define ABJ_NET_FILE_ALT "abjchess-20261030.nnue"  // 幻神揭棋引擎: fallback file name of the original AB-JChess net
+#endif
 #ifndef ABJ_NET_FILE
-#define ABJ_NET_FILE "abjchess-20261030.nnue"  // compressed HNN small net (JQHNNZ01; format detected by magic)
+#define ABJ_NET_FILE "pikafish.nnue"  // compressed HNN small net (JQHNNZ01; format detected by magic)
 #endif
 #ifndef ABJ_TIER_NAME
 #define ABJ_TIER_NAME "native"
@@ -196,17 +202,29 @@ struct Engine {
     }
 
     Engine() {
-        out("AB JChess by Huorongrong,Laoxu(Kouza)");
+        out(std::string(HS_ENGINE_NAME) + " based on AB JChess by Huorongrong,Laoxu(Kouza) and jqe by Devin O'Keefe (GPLv3)");
         out("AB JChess is free of charge. Resale is prohibited.");
         pos.set_fen(START_FEN);
-        // Default net: the compressed small net file ABJ_NET_FILE next to the engine (or in the current directory).
-        // No net is compiled into the binary; a missing / bad default net is reported loudly and searching is refused.
-        evalFile = ABJ_NET_FILE;
+        // 幻神揭棋引擎: default net order = embedded net (if built in) -> pikafish.nnue -> abjchess-20261030.nnue,
+        // each file next to the engine first, then in the current directory. A missing net is reported loudly
+        // and searching is refused (unchanged from AB-JChess).
         std::string tried, err;
-        const std::string path = resolve_net(ABJ_NET_FILE, &tried);
+        if (nnue::has_embedded() && nnue::load_embedded(&err)) {
+            evalFile = EMBEDDED;
+            netInfo = "net type " + net_desc() + " (default <embedded>, " + std::to_string(nnue::embedded_size()) + " bytes compressed)";
+            return;
+        }
+        std::string path = resolve_net(ABJ_NET_FILE, &tried);
+        evalFile = ABJ_NET_FILE;
+        if (path.empty()) {
+            std::string tried2;
+            path = resolve_net(ABJ_NET_FILE_ALT, &tried2);
+            tried += ", " + tried2;
+            if (!path.empty()) evalFile = ABJ_NET_FILE_ALT;
+        }
         if (path.empty()) netError = "default net " + std::string(ABJ_NET_FILE) + " not found (looked in " + tried + ")";
         else if (!nnue::load(path, &err)) netError = "default net " + path + " failed to load: " + err;
-        else netInfo = "net type " + net_desc() + " (default " + std::string(ABJ_NET_FILE) + ", " + net_load_desc() + ")";
+        else netInfo = "net type " + net_desc() + " (default " + evalFile + ", " + net_load_desc() + ")";
         if (!netError.empty()) { evalFile.clear(); out("info string ERROR " + netError + "; set EvalFile to a net file; search refused until a net is loaded"); }
     }
     std::string netError, netInfo;
@@ -218,7 +236,7 @@ struct Engine {
             const char* forced = std::getenv("ABJ_TIER");
             out(std::string("info string ISA tier ") + ABJ_TIER_NAME + " (" + ABJ_OS + " " + ABJ_ARCH + (forced && *forced ? ", ABJ_TIER set" : "") + ")");
             if (nnue::loaded())
-                out("info string net type " + net_desc() + " (" + (evalFile == ABJ_NET_FILE ? "default " : "") + evalFile +
+                out("info string net type " + net_desc() + " (" + (evalFile == ABJ_NET_FILE || evalFile == ABJ_NET_FILE_ALT || evalFile == EMBEDDED ? "default " : "") + evalFile +
                     (hnn::loaded() ? ", " + net_load_desc() : std::string()) + ")");
         }
         if (!nnue::loaded()) out("info string ERROR no evaluation net loaded" + (netError.empty() ? std::string() : " (" + netError + ")") + "; set EvalFile; search refused");
@@ -238,11 +256,11 @@ struct Engine {
     }
 
     void cmd_uci() {
-        out("id name AB JChess 1 RB");
-        out("id author Huorongrong,Laoxu(Kouza)");
+        out(std::string("id name ") + HS_ENGINE_NAME);
+        out("id author 幻神 (based on AB JChess by Huorongrong,Laoxu(Kouza); jqe by Devin O'Keefe)");
         out("option name Hash type spin default 64 min 1 max 16384");
         out("option name Threads type spin default 1 min 1 max 256");
-        out(std::string("option name EvalFile type string default ") + ABJ_NET_FILE);
+        out(std::string("option name EvalFile type string default ") + (nnue::has_embedded() ? EMBEDDED : ABJ_NET_FILE));
         out("option name Clear Hash type button");
         out("option name ChaseRule type combo default skyrule var none var default var skyrule");
         out("uciok");

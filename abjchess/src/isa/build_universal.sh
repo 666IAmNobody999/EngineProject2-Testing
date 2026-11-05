@@ -1,5 +1,6 @@
 #!/bin/bash
 # build_universal.sh linux|windows|android-arm64|android-armv7|android-x86_64 OUTDIR: all x86-64 tiers (LTO, one partition each, everything but main internalised)
+# Env NET_EMBED=<net file>: embed that net (幻神揭棋引擎).
 # + isa/dispatch_x86.cpp -> one static executable (abjchess-linux-x86-64 / abjchess-windows-x86-64.exe). REUSE=1 keeps tier objects.
 set -e
 HERE=$(cd "$(dirname "$0")/.." && pwd); . "$HERE/isa/tiers.sh"
@@ -46,6 +47,11 @@ for t in ${TIERS:-$ALL}; do
     OBJS="$OBJS $OUT/t_$id.o"
 done
 $CXX -std=c++20 -O2 $DFLAGS -c "$HERE/isa/$DISP" -o "$OUT/dispatch.o"
+# 幻神揭棋引擎: one copy of the embedded net shared by all tiers (their references stay undefined until here)
+if [ -n "$NET_EMBED" ]; then
+    $CXX -DABJ_NET_PATH="\"$(realpath "$NET_EMBED")\"" -c "$HERE/embedded_net.S" -o "$OUT/embedded_net.o"
+    OBJS="$OBJS $OUT/embedded_net.o"
+fi
 LDX=""; [ "${PLAT%-llvm}" = windows ] && LDX="-Wl,--allow-multiple-definition"
 $CXX -static -pthread $LDX "$OUT/dispatch.o" $OBJS -o "$EXE"
 $STRIP "$EXE"

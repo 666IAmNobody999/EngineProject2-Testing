@@ -1,7 +1,7 @@
 #!/bin/bash
 # build_tier.sh TIER OUTDIR [extra flags]: Linux x86-64 static per-tier executable OUTDIR/abjchess-TIER (LTO, one partition);
 # keeps OUTDIR/TIER/abjchess.ltrans0.ltrans.o (the whole tier as one relocatable object, used by build_universal.sh).
-# Env: CXX (g++), PGO=gen|use:<dir>, NOLTO=1, ENTRY=1 (tier main renamed abj_main_<id>, for the universal binary).
+# Env: CXX (g++), NET_EMBED=<net file>, PGO=gen|use:<dir>, NOLTO=1, ENTRY=1 (tier main renamed abj_main_<id>, for the universal binary).
 set -e
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 . "$HERE/isa/tiers.sh"
@@ -17,6 +17,13 @@ LINK=${LINK:--static}
 PG=""
 case "$PGO" in gen) PG="-fprofile-generate=$B/pgo -fprofile-update=single";; use:*) PG="-fprofile-use=${PGO#use:} -fprofile-partial-training -Wno-missing-profile";; esac
 OBJS=""
+# 幻神揭棋引擎: NET_EMBED=/abs/path/pikafish.nnue links that net into the binary (embedded_net.S, .incbin)
+EMB=""
+if [ -n "$NET_EMBED" ]; then
+    COMMON="$COMMON -DABJ_EMBED_NET"
+    $CXX -DABJ_NET_PATH="\"$(realpath "$NET_EMBED")\"" -c "$HERE/embedded_net.S" -o "$B/embedded_net.o"
+    EMB="$B/embedded_net.o"
+fi
 for f in $ENGINE_FILES main; do
     while [ "$(jobs -rp | wc -l)" -ge "${JOBS:-2}" ]; do wait -n; done
     nice -n 19 $CXX $COMMON $TF $LTO $PG "$@" -c "$HERE/$f.cpp" -o "$B/$f.o" &
@@ -25,6 +32,6 @@ done
 wait
 DEFS=""
 [ -n "$ENTRY" ] && DEFS="-Wl,--defsym=main=abj_main_$ID"
-( cd "$B" && nice -n 19 $CXX $COMMON $TF $LTO $PG "$@" $LTOSAVE $LINK $OBJS -o "$B/abjchess" $DEFS )
+( cd "$B" && nice -n 19 $CXX $COMMON $TF $LTO $PG "$@" $LTOSAVE $LINK $OBJS $EMB -o "$B/abjchess" $DEFS )
 if [ -f "$B/abjchess.exe" ]; then cp "$B/abjchess.exe" "$OUT/abjchess-$TIER.exe"; else cp "$B/abjchess" "$OUT/abjchess-$TIER"; fi
 ls -l "$OUT"/abjchess-$TIER*
