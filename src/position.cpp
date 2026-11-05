@@ -44,6 +44,7 @@ namespace DarkParams {
   int maxDarkTypes = 43;
   int flipScaling  = 361;
   int darkMode     = 1;
+  int darkMix      = 0;
   int darkIndependent = 0;
   int darkPrune    = 1;
 }

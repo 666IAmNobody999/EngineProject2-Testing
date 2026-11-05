@@ -45,6 +45,7 @@ namespace DarkParams {
   extern int darkMode;       // 0: expand outcomes at depth 0 past the budget, 1: keep hidden
   extern int darkIndependent;// 1: each reveal outcome decides its own re-search, 0: use running min
   extern int darkPrune;      // 1: Star1-style pruning of the reveal loop
+  extern int darkMix;        // >0: ChanceMix (from AB-JChess): outcomes probed at depth-darkMix, most numerous at full depth
 }
 #define MAXDARKDEPTH    DarkParams::maxDarkDepth
 #define QDARKDEPTH      DarkParams::qDarkDepth
@@ -168,6 +169,9 @@ public:
   // Doing and undoing moves
   bool getDark(StateInfo& newSt, int& typecount, bool& isDarkDepth);
   void setDark();
+  // DarkMix: restart the reveal iteration of the last move so that the next
+  // getDark() yields piece type t (or the next type present in the bag)
+  void set_dark_type_before(PieceType t) { st->darkTypeIndex = int(t) - 1; }
   bool do_move_temp(Move m, StateInfo& newSt, PieceType flipped = NO_PIECE_TYPE);
   bool do_move(Move m, StateInfo& newSt, bool givesCheck);
   void undo_move(Move m);

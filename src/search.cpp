@@ -129,11 +129,13 @@ int& DarkFlipScaling = DarkParams::flipScaling;
 int& DarkMode     = DarkParams::darkMode;
 int& DarkIndependent = DarkParams::darkIndependent;
 int& DarkPrune    = DarkParams::darkPrune;
+int& DarkMix      = DarkParams::darkMix;
 int SeekMateOn = 1;
 TUNE(SetRange(0, 1), SeekMateOn);
 TUNE(SetRange(1, 8), DarkMaxDepth, SetRange(0, 4), DarkQDepth,
      SetRange(1, 100000), DarkMaxTypes, SetRange(100, 1200), DarkFlipScaling,
-     SetRange(0, 1), DarkMode, SetRange(0, 1), DarkIndependent, SetRange(0, 1), DarkPrune);
+     SetRange(0, 1), DarkMode, SetRange(0, 1), DarkIndependent, SetRange(0, 1), DarkPrune,
+     SetRange(0, 12), DarkMix);
 
 /*
 TUNE(futi_mar, redu_1, redu_2, redu_3, st_bo_1, st_bo_2, st_bo_3, st_bo_4, Futi_1, Numov_0, Numov_1,
@@ -1515,7 +1517,109 @@ moves_loop: // When in check, search starts here
           return v;
       };
 
-      if (darkMove)
+      if (darkMove && DarkParams::darkMix > 0 && newDepth >= 1)
+      {
+          // ChanceMix, ported from AB-JChess (lxsgx23/AB-JChess, GPLv3; based on
+          // jqe by Devin O'Keefe, MIT). Every reveal outcome gets an open-window
+          // probe at newDepth - DarkMix (quiescence when <= 0); only the most
+          // numerous identity is searched at full depth, with the window mapped
+          // through the other outcomes' probe values. The outcomes are averaged
+          // in winrate space like ScoreCalc. Saves the full-depth searches of
+          // all the other identities.
+          StateInfo darkSt;
+          int typecount = 0, n = 0, total = 0, rep = 0;
+          bool isDarkDepth = false;
+          PieceType oType[8];
+          int oCnt[8];
+          Value oVal[8];
+          const Depth pd = std::max(newDepth - DarkParams::darkMix, 0);
+
+          while (n < 8 && pos.getDark(darkSt, typecount, isDarkDepth))
+          {
+              oType[n] = type_of(pos.piece_on(to_sq(move)));
+              oCnt[n] = typecount;
+              (ss+1)->pv = pv;
+              (ss+1)->pv[0] = MOVE_NONE;
+              oVal[n] = -search<PV>(pos, ss+1, -VALUE_INFINITE, VALUE_INFINITE, pd, false);
+              total += typecount;
+              if (typecount > oCnt[rep])
+                  rep = n;
+              ++n;
+              pos.setDark();
+              if (Threads.stop.load(std::memory_order_relaxed))
+                  break;
+          }
+
+          if (Threads.stop.load(std::memory_order_relaxed))
+              value = VALUE_ZERO;
+          else if (n == 0)
+              value = searchChild(false); // reveal budget exhausted: piece stays hidden
+          else
+          {
+              const double F = FLIP_SCALING;
+              auto W = [&](Value v) { return 1.0 / (1.0 + std::exp(-double(std::clamp(int(v), -DARKVALRATE, DARKVALRATE)) / F)); };
+              const double eMin = W(-VALUE_INFINITE), eMax = W(VALUE_INFINITE);
+              auto Winv = [&](double e) { e = std::clamp(e, eMin, eMax); return F * std::log(e / (1.0 - e)); };
+              const double pr = double(oCnt[rep]) / total;
+              double off = 0.0;
+              for (int i = 0; i < n; ++i)
+                  if (i != rep)
+                      off += double(oCnt[i]) / total * W(oVal[i]);
+              auto mapped = [&](Value x) {
+                  return Value(std::clamp(int(std::lround(Winv(pr * W(x) + off))),
+                                          int(VALUE_MATED_IN_MAX_PLY + 1), int(VALUE_MATE_IN_MAX_PLY - 1)));
+              };
+              const double ta = (W(alpha) - off) / pr, tb = (W(beta) - off) / pr;
+              if (ta >= eMax)
+                  value = std::min(alpha, mapped(VALUE_INFINITE));  // cannot reach alpha
+              else if (tb <= eMin)
+                  value = std::max(beta, mapped(-VALUE_INFINITE));  // cannot fall below beta
+              else
+              {
+                  Value ca = ta <= eMin ? -VALUE_INFINITE : Value(int(std::floor(Winv(ta))));
+                  Value cb = tb >= eMax ?  VALUE_INFINITE : Value(int(std::ceil(Winv(tb))));
+                  if (!PvNode)
+                  {
+                      // Null window at the smallest value whose mapped result reaches beta
+                      Value h = std::clamp(cb, Value(-DARKVALRATE), Value(DARKVALRATE));
+                      for (int k = 0; k < 64 && h > -DARKVALRATE && mapped(h - 1) >= beta; ++k) h = h - 1;
+                      for (int k = 0; k < 64 && h <  DARKVALRATE && mapped(h) < beta; ++k) h = h + 1;
+                      ca = h - 1;
+                      cb = h;
+                  }
+                  bool unreachable = !PvNode && mapped(cb) < beta;
+                  if (cb <= ca)
+                      cb = ca + 1;
+
+                  if (unreachable)
+                      value = std::min(alpha, mapped(VALUE_INFINITE));
+                  else if (n == 1)
+                  {
+                      // A single possible identity: plain search, no mapping
+                      pos.set_dark_type_before(oType[rep]);
+                      pos.getDark(darkSt, typecount, isDarkDepth);
+                      value = searchChild(false);
+                      pos.setDark();
+                  }
+                  else {
+                  pos.set_dark_type_before(oType[rep]);
+                  pos.getDark(darkSt, typecount, isDarkDepth);
+                  assert(type_of(pos.piece_on(to_sq(move))) == oType[rep]);
+                  const Value sa = alpha, sb = beta;
+                  alpha = ca;
+                  beta = cb;
+                  Value v = searchChild(false);
+                  alpha = sa;
+                  beta = sb;
+                  pos.setDark();
+
+                  const Value r = mapped(v);
+                  value = v <= ca ? std::min(r, alpha) : v >= cb ? std::max(r, beta) : r;
+                  }
+              }
+          }
+      }
+      else if (darkMove)
       {
           StateInfo darkSt;
           int typecount = 0, searched = 0;
