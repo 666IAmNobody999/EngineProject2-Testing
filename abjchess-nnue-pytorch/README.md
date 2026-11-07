@@ -56,3 +56,13 @@ pip install -r requirements.txt
 （https://github.com/devinokeefe/jieqi ，Copyright (c) 2026 Devin O'Keefe，MIT）；`train.py` 为 jqe 原文件，
 `train_hnn.py`、`train_snn.py` 沿用了其中部分数据读取代码，MIT 声明见 `LICENSE-jqe-MIT.txt`。感谢 Devin O'Keefe。
 详见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。
+
+## 从已发布的网络继续训练（幻神揭棋引擎补充）
+
+`train_hnn.py --init` 只接受训练器自己的 `.pt` 检查点。`hnn2pt.py` 把引擎网络（`.hnn` 或压缩的 `.nnue`，例如
+`abjchess-20261030.nnue`）无损还原成 `.pt`（`--verify` 会重新导出并确认与原 `.hnn` 逐字节相同）：
+
+```sh
+python3 hnn2pt.py abjchess-20261030.nnue base.pt --verify
+python3 train_hnn.py data*.bin --val-file val.bin --teacher abjchess-20261030.nnue --init base.pt --lr 1e-4 --out runs/ft1
+```
